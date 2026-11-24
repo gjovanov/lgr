@@ -28,7 +28,13 @@ export const fiscalPeriodController = new Elysia({ prefix: '/org/:orgId/accounti
     return { fiscalPeriods: result.items, ...result }
   }, {
     isSignIn: true,
-    query: t.Object({ fiscalYearId: t.Optional(t.String({ pattern: '^[0-9a-fA-F]{24}$' })) }, { additionalProperties: true }),
+    query: t.Object({
+      fiscalYearId: t.Optional(t.String({ pattern: '^[0-9a-fA-F]{24}$' })),
+      page: t.Optional(t.String()),
+      size: t.Optional(t.String()),
+      sortBy: t.Optional(t.String()),
+      sortOrder: t.Optional(t.String()),
+    }, { additionalProperties: true }),
   })
   .get('/:id', async ({ params, status }) => {
     const r = getRepos()
@@ -36,7 +42,8 @@ export const fiscalPeriodController = new Elysia({ prefix: '/org/:orgId/accounti
     if (!item) return status(404, { message: 'Not found' })
     return { fiscalPeriod: item }
   }, { isSignIn: true })
-  .post('/', async ({ params, body, user }) => {
+  .post('/', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const item = await r.fiscalPeriods.create({ ...clientCreate('FiscalPeriod', body, { orgId: params.orgId }), orgId: params.orgId } as any)
 
@@ -45,6 +52,7 @@ export const fiscalPeriodController = new Elysia({ prefix: '/org/:orgId/accounti
     return { fiscalPeriod: item }
   }, { isSignIn: true, body: createBody })
   .put('/:id', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.fiscalPeriods.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
@@ -56,6 +64,7 @@ export const fiscalPeriodController = new Elysia({ prefix: '/org/:orgId/accounti
     return { fiscalPeriod: item }
   }, { isSignIn: true, body: updateBody })
   .delete('/:id', async ({ params, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.fiscalPeriods.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })

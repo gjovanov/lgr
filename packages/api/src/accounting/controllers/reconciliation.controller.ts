@@ -42,6 +42,7 @@ export const reconciliationController = new Elysia({ prefix: '/org/:orgId/accoun
     } catch (e) { return refused(status, e) }
   }, { isSignIn: true })
   .post('/lines', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     try {
       const r = await addStatementLines(params.orgId, body.bankAccountId, [{ ...body.line, date: new Date(body.line.date) }], { statementDate: body.statementDate, source: 'manual' })
       createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'reconciliation', entityId: r.reconciliationId, changes: [{ field: 'items', oldValue: null, newValue: `+1 line by hand: ${body.line.amount}` }] })
@@ -49,6 +50,7 @@ export const reconciliationController = new Elysia({ prefix: '/org/:orgId/accoun
     } catch (e) { return refused(status, e) }
   }, { isSignIn: true, body: t.Object({ bankAccountId: t.String(), statementDate: t.Optional(t.String()), line: lineBody }) })
   .post('/import', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     try {
       const parsed = parseStatementCsv(body.content)
       if (!parsed.lines.length) {
@@ -60,6 +62,7 @@ export const reconciliationController = new Elysia({ prefix: '/org/:orgId/accoun
     } catch (e) { return refused(status, e) }
   }, { isSignIn: true, body: t.Object({ bankAccountId: t.String(), statementDate: t.Optional(t.String()), content: t.String({ minLength: 1, maxLength: 5_000_000 }) }) })
   .delete('/lines/:lineId', async ({ params, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     try {
       await removeStatementLine(params.orgId, String(query.bankAccountId ?? ''), params.lineId)
       createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'reconciliation', entityId: String(query.bankAccountId ?? ''), changes: [{ field: 'items', oldValue: params.lineId, newValue: null }] })
@@ -67,6 +70,7 @@ export const reconciliationController = new Elysia({ prefix: '/org/:orgId/accoun
     } catch (e) { return refused(status, e) }
   }, { isSignIn: true })
   .post('/match', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     try {
       await matchLines(params.orgId, body.bankAccountId, body.bankIds, body.ledgerIds)
       createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'reconciliation', entityId: body.bankAccountId, changes: [{ field: 'matches', oldValue: null, newValue: { bank: body.bankIds, ledger: body.ledgerIds } }] })
@@ -74,6 +78,7 @@ export const reconciliationController = new Elysia({ prefix: '/org/:orgId/accoun
     } catch (e) { return refused(status, e) }
   }, { isSignIn: true, body: t.Object({ bankAccountId: t.String(), bankIds: t.Array(t.String()), ledgerIds: t.Array(t.String()) }) })
   .post('/unmatch', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     try {
       await unmatchLines(params.orgId, body.bankAccountId, body.bankIds)
       createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'reconciliation', entityId: body.bankAccountId, changes: [{ field: 'matches', oldValue: body.bankIds, newValue: null }] })
@@ -81,6 +86,7 @@ export const reconciliationController = new Elysia({ prefix: '/org/:orgId/accoun
     } catch (e) { return refused(status, e) }
   }, { isSignIn: true, body: t.Object({ bankAccountId: t.String(), bankIds: t.Array(t.String()) }) })
   .post('/complete', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     try {
       const r = await completeReconciliation(params.orgId, body.bankAccountId, body.statementDate, body.statementBalance, user.id)
       createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'reconciliation', entityId: r.reconciliationId, changes: [{ field: 'status', oldValue: 'draft', newValue: 'completed' }] })
@@ -105,7 +111,8 @@ export const reconciliationController = new Elysia({ prefix: '/org/:orgId/accoun
     if (!item) return status(404, { message: 'Not found' })
     return { bankReconciliation: item }
   }, { isSignIn: true })
-  .post('/', async ({ params, body, user }) => {
+  .post('/', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const data = clientCreate('BankReconciliation', body, { orgId: params.orgId })
     const item = await r.bankReconciliations.create({ ...data, ...completion(data.status, 'draft', user.id), orgId: params.orgId } as any)
@@ -115,6 +122,7 @@ export const reconciliationController = new Elysia({ prefix: '/org/:orgId/accoun
     return { bankReconciliation: item }
   }, { isSignIn: true, body: createBody })
   .put('/:id', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.bankReconciliations.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
@@ -127,6 +135,7 @@ export const reconciliationController = new Elysia({ prefix: '/org/:orgId/accoun
     return { bankReconciliation: item }
   }, { isSignIn: true, body: updateBody })
   .delete('/:id', async ({ params, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     if (!(await r.bankReconciliations.deleteInOrg(params.id, params.orgId))) return status(404, { message: 'Not found' })
 

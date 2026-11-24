@@ -40,7 +40,8 @@ export const exchangeRateController = new Elysia({ prefix: '/org/:orgId/accounti
     if (!item) return status(404, { message: 'Not found' })
     return { exchangeRate: item }
   }, { isSignIn: true })
-  .post('/', async ({ params, body, user }) => {
+  .post('/', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const item = await r.exchangeRates.create({ ...clientCreate('ExchangeRate', body, { orgId: params.orgId }), orgId: params.orgId } as any)
 
@@ -49,6 +50,7 @@ export const exchangeRateController = new Elysia({ prefix: '/org/:orgId/accounti
     return { exchangeRate: item }
   }, { isSignIn: true, body: createBody })
   .put('/:id', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.exchangeRates.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
@@ -60,6 +62,7 @@ export const exchangeRateController = new Elysia({ prefix: '/org/:orgId/accounti
     return { exchangeRate: item }
   }, { isSignIn: true, body: updateBody })
   .delete('/:id', async ({ params, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.exchangeRates.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })

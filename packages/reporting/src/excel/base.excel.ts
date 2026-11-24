@@ -17,7 +17,7 @@ export async function createWorkbook(): Promise<{ workbook: ExcelJS.stream.xlsx.
   return { workbook, tmpFile }
 }
 
-export async function finalizeWorkbook(workbook: ExcelJS.stream.xlsx.WorkbookWriter, tmpFile: string): Promise<Buffer> {
+export async function finalizeWorkbook(workbook: ExcelJS.stream.xlsx.WorkbookWriter, tmpFile: string): Promise<Buffer<ArrayBuffer>> {
   await workbook.commit()
   const buffer = await Bun.file(tmpFile).arrayBuffer()
   await unlink(tmpFile)

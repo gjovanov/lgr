@@ -32,7 +32,8 @@ export const fiscalYearController = new Elysia({ prefix: '/org/:orgId/accounting
     if (!item) return status(404, { message: 'Not found' })
     return { fiscalYear: item }
   }, { isSignIn: true })
-  .post('/', async ({ params, body, user }) => {
+  .post('/', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const item = await r.fiscalYears.create({ ...clientCreate('FiscalYear', body, { orgId: params.orgId }), orgId: params.orgId } as any)
 
@@ -41,6 +42,7 @@ export const fiscalYearController = new Elysia({ prefix: '/org/:orgId/accounting
     return { fiscalYear: item }
   }, { isSignIn: true, body: createBody })
   .put('/:id', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.fiscalYears.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
@@ -52,6 +54,7 @@ export const fiscalYearController = new Elysia({ prefix: '/org/:orgId/accounting
     return { fiscalYear: item }
   }, { isSignIn: true, body: updateBody })
   .delete('/:id', async ({ params, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.fiscalYears.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })

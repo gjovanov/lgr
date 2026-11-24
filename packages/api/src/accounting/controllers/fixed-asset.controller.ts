@@ -81,6 +81,7 @@ export const fixedAssetController = new Elysia({ prefix: '/org/:orgId/accounting
     return { fixedAsset: { ...item, imported: isImportedAsset(item as any) } }
   }, { isSignIn: true })
   .post('/', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const data = clientCreate('FixedAsset', body, { orgId: params.orgId })
     const tax = taxUpdateOf(data)
@@ -93,6 +94,7 @@ export const fixedAssetController = new Elysia({ prefix: '/org/:orgId/accounting
     return { fixedAsset: { ...item, imported: false } }
   }, { isSignIn: true, body: createBody })
   .put('/:id', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.fixedAssets.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
@@ -113,6 +115,7 @@ export const fixedAssetController = new Elysia({ prefix: '/org/:orgId/accounting
     return { fixedAsset: { ...item, imported: false } }
   }, { isSignIn: true, body: updateBody })
   .delete('/:id', async ({ params, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.fixedAssets.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })

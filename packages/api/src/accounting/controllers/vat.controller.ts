@@ -115,6 +115,7 @@ export const vatController = new Elysia({ prefix: '/org/:orgId/accounting/vat' }
     })
   }, { isSignIn: true })
   .post('/:period/generate', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     try {
       const taxReturn = await generateVatReturn({ orgId: params.orgId, userId: user.id, period: params.period, ...body })
       return { taxReturn }
@@ -125,6 +126,7 @@ export const vatController = new Elysia({ prefix: '/org/:orgId/accounting/vat' }
   // Multipart with an acknowledgement file, JSON without. `t.File()` is brittle on multipart bodies
   // (`org-logo.controller.ts`), so the file is checked here.
   .post('/:period/mark-filed', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const b = body as { number: string; file?: any }
     const upload = b.file && typeof b.file.arrayBuffer === 'function' ? b.file : undefined
     // An acknowledgement must not vanish: a `file` that is no file was sent some other way than meant.

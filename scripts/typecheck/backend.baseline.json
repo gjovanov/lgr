@@ -1,41 +1,4 @@
 {
-  "packages/api/src/accounting/controllers/analytic.controller.ts": {
-    "TS2345": 1
-  },
-  "packages/api/src/accounting/controllers/bank-account.controller.ts": {
-    "TS18047": 3
-  },
-  "packages/api/src/accounting/controllers/exchange-rate.controller.ts": {
-    "TS18047": 3
-  },
-  "packages/api/src/accounting/controllers/fiscal-period.controller.ts": {
-    "TS18047": 3,
-    "TS2339": 5
-  },
-  "packages/api/src/accounting/controllers/fiscal-position.controller.ts": {
-    "TS18047": 3
-  },
-  "packages/api/src/accounting/controllers/fiscal-year.controller.ts": {
-    "TS18047": 3
-  },
-  "packages/api/src/accounting/controllers/fixed-asset.controller.ts": {
-    "TS18047": 3
-  },
-  "packages/api/src/accounting/controllers/journal-config.controller.ts": {
-    "TS18047": 3
-  },
-  "packages/api/src/accounting/controllers/payment-term.controller.ts": {
-    "TS18047": 3
-  },
-  "packages/api/src/accounting/controllers/reconciliation.controller.ts": {
-    "TS18047": 12
-  },
-  "packages/api/src/accounting/controllers/tax-return.controller.ts": {
-    "TS18047": 3
-  },
-  "packages/api/src/accounting/controllers/vat.controller.ts": {
-    "TS18047": 2
-  },
   "packages/api/src/api.ts": {
     "TS2589": 22
   },
@@ -89,7 +52,7 @@
   },
   "packages/api/src/reports/controllers/report.controller.ts": {
     "TS2322": 2,
-    "TS2345": 2
+    "TS2345": 1
   },
   "packages/api/src/tunnel/streams.ts": {
     "TS18048": 1

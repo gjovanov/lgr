@@ -43,7 +43,8 @@ export const fiscalPositionController = new Elysia({ prefix: '/org/:orgId/accoun
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user }) => {
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
       const item = await r.fiscalPositions.create({ ...body, orgId } as any)
 
@@ -56,6 +57,7 @@ export const fiscalPositionController = new Elysia({ prefix: '/org/:orgId/accoun
   .put(
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
       const existing = await r.fiscalPositions.findByIdInOrg(id, orgId)
       if (!existing) return status(404, { message: 'Not found' })
@@ -69,6 +71,7 @@ export const fiscalPositionController = new Elysia({ prefix: '/org/:orgId/accoun
     { isSignIn: true, body: fiscalPositionBody },
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.fiscalPositions.findByIdInOrg(id, orgId)
     if (!existing) return status(404, { message: 'Not found' })

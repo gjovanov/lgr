@@ -49,7 +49,8 @@ export const paymentTermController = new Elysia({ prefix: '/org/:orgId/accountin
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user }) => {
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
       const item = await r.paymentTerms.create({ ...body, orgId } as any)
 
@@ -62,6 +63,7 @@ export const paymentTermController = new Elysia({ prefix: '/org/:orgId/accountin
   .put(
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
       const existing = await r.paymentTerms.findByIdInOrg(id, orgId)
       if (!existing) return status(404, { message: 'Not found' })
@@ -75,6 +77,7 @@ export const paymentTermController = new Elysia({ prefix: '/org/:orgId/accountin
     { isSignIn: true, body: paymentTermBody },
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.paymentTerms.findByIdInOrg(id, orgId)
     if (!existing) return status(404, { message: 'Not found' })

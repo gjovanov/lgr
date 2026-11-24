@@ -37,7 +37,8 @@ export const bankAccountController = new Elysia({ prefix: '/org/:orgId/accountin
     if (!item) return status(404, { message: 'Not found' })
     return { bankAccount: item }
   }, { isSignIn: true })
-  .post('/', async ({ params, body, user }) => {
+  .post('/', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const item = await r.bankAccounts.create({ ...clientCreate('BankAccount', body, { orgId: params.orgId }), orgId: params.orgId } as any)
 
@@ -46,6 +47,7 @@ export const bankAccountController = new Elysia({ prefix: '/org/:orgId/accountin
     return { bankAccount: item }
   }, { isSignIn: true, body: createBody })
   .put('/:id', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.bankAccounts.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
@@ -57,6 +59,7 @@ export const bankAccountController = new Elysia({ prefix: '/org/:orgId/accountin
     return { bankAccount: item }
   }, { isSignIn: true, body: updateBody })
   .delete('/:id', async ({ params, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.bankAccounts.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
