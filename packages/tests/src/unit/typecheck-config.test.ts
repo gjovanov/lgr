@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import ts from 'typescript'
+import { PROGRAMS, compilerKilled } from '../../../../scripts/typecheck'
 import {
   compareCounts, countDiagnostics, parseBaseline, parseDiagnostics, rewriteBaseline, serializeCounts, totalOf,
 } from '../../../../scripts/lib/typecheck-baseline'
@@ -124,6 +125,31 @@ describe('CI checks every package, or says why not (FR-32.2, FR-32.3)', () => {
       if (preset !== join(ROOT, want)) offenders.push(`${p}: extends ${preset}, its program uses ${want}`)
     }
     expect(offenders).toEqual([])
+  })
+})
+
+describe('a killed compiler is said as such, never as a type error (#939)', () => {
+  const ui = PROGRAMS.find(p => p.name === 'ui')!
+  const backend = PROGRAMS.find(p => p.name === 'backend')!
+
+  it('exit 137 / SIGKILL: killed, likely out of memory', () => {
+    expect(compilerKilled(ui, 137, 'SIGKILL')).toBe('vue-tsc (ui) was killed (exit 137, SIGKILL, likely out of memory); this is not a type error')
+    // The exit code alone is enough (a runtime that reports no signal).
+    expect(compilerKilled(ui, 137, null)).toBe('vue-tsc (ui) was killed (exit 137, likely out of memory); this is not a type error')
+  })
+
+  it('another signal: killed, without the memory guess', () => {
+    expect(compilerKilled(backend, 143, 'SIGTERM')).toBe('tsc (backend) was killed (exit 143, SIGTERM); this is not a type error')
+  })
+
+  it('a compiler that exited on its own is not killed: 0 clean, 1 or 2 errors, other codes its own failure', () => {
+    for (const code of [0, 1, 2, 3, 127, 128]) expect(compilerKilled(ui, code, null)).toBeNull()
+  })
+
+  it('the programs run one after another, never side by side', () => {
+    const source = readFileSync(join(ROOT, 'scripts/typecheck.ts'), 'utf8')
+    expect(source).not.toMatch(/Promise\.all\(\s*programs/)
+    expect(source).toMatch(/for \(const program of programs\) results\.push\(await run\(program\)\)/)
   })
 })
 

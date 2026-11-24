@@ -512,7 +512,8 @@ jobs:
   # nothing type-checked the code: Bun runs the sources and Vite strips the types, so a type error
   # reached master unless a test happened to run into it.
   # A job of its own, beside the suite and the builds rather than before them (FR-32.8): it needs
-  # no database and no build, and the three compilers run side by side in it.
+  # no database and no build. ⚠ Its three compilers run one after another (#939): side by side they
+  # took ~10 GB on a host the suite and the cargo build share, and the OOM killer took `vue-tsc`.
   # The linter (FR-32.5) runs in this job too: one job for both, as FR-32 §4 has it, and its
   # floating-promise rule reads the same tsconfig files.
   typecheck:
