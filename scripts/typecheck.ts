@@ -11,7 +11,14 @@
  * - `backend`: `tsc` over the server's packages (`scripts/typecheck/backend.tsconfig.json`);
  * - `ui`: `vue-tsc` over the web app's packages (`scripts/typecheck/ui.tsconfig.json`);
  * - `desktop-ui`: `vue-tsc` over the desktop shell's own pages (its own tsconfig.json).
- * They run side by side: each compiler is single-threaded.
+ * ⚠ They run ONE AFTER ANOTHER, never side by side (#939). Each holds its whole program in memory
+ * (measured peaks: `ui` ~5 GB, `backend` ~3.4 GB, `desktop-ui` ~1.5 GB), and the self-hosted
+ * runner shares its host with the suite and the cargo build: three at once is ~10 GB, and the
+ * OOM killer took `ui` (exit 137) about once in a few runs. One at a time costs ~20 s of wall time.
+ * Each line prints the program's peak memory, so a run near the limit shows in the log.
+ *
+ * A compiler killed by a signal (137 = SIGKILL, the OOM killer) is said as such, never as a type
+ * error: `compilerKilled`.
  *
  * ⚠ The compilers run under Bun (`bun <their entry file>`), never through `node_modules/.bin`:
  * those are `#!/usr/bin/env node` scripts, and the self-hosted CI runner has no Node.
@@ -50,6 +57,20 @@ interface Result {
   program: Program
   diagnostics: Diagnostic[]
   seconds: number
+  /** Peak resident memory in MB, when the runtime reports it. */
+  peakMb?: number
+}
+
+/**
+ * The line that says a compiler was KILLED rather than that it failed, or null when it exited on
+ * its own. Bun reports a child killed by a signal as exit 128 + the signal's number (SIGKILL: 137)
+ * with its `signalCode` set; either alone is enough.
+ */
+export function compilerKilled(program: Program, code: number, signal: string | null): string | null {
+  const killed = signal != null || (code > 128 && code < 128 + 65)
+  if (!killed) return null
+  const why = signal === 'SIGKILL' || code === 137 ? ', likely out of memory' : ''
+  return `${program.compiler} (${program.name}) was killed (exit ${code}${signal ? `, ${signal}` : ''}${why}); this is not a type error`
 }
 
 async function run(program: Program): Promise<Result> {
@@ -60,7 +81,7 @@ async function run(program: Program): Promise<Result> {
   // errors that look fixed.
   const dir = mkdtempSync(join(tmpdir(), 'lgr-typecheck-'))
   const out = join(dir, 'out.txt')
-  let stdout: string, stderr: string, code: number
+  let stdout: string, stderr: string, code: number, signal: string | null, maxRss: number | undefined
   try {
     const proc = Bun.spawn([process.execPath, ENTRY[program.compiler](), '--noEmit', '--pretty', 'false', '-p', program.project], {
       cwd: ROOT,
@@ -68,9 +89,17 @@ async function run(program: Program): Promise<Result> {
       stderr: 'pipe',
     })
     ;[stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
+    signal = proc.signalCode
+    maxRss = proc.resourceUsage()?.maxRSS
     stdout = readFileSync(out, 'utf8')
   } finally {
     rmSync(dir, { recursive: true, force: true })
+  }
+  const killed = compilerKilled(program, code, signal)
+  if (killed) {
+    console.error(stdout + stderr)
+    console.error(killed)
+    throw new Error(killed)
   }
   const diagnostics = parseDiagnostics(stdout + '\n' + stderr, ROOT)
   // 0: clean. 1 or 2: it printed errors. Anything else, or a failure that printed none, is the
@@ -79,7 +108,8 @@ async function run(program: Program): Promise<Result> {
     console.error(stdout + stderr)
     throw new Error(`${program.compiler} -p ${program.project} exited ${code}`)
   }
-  return { program, diagnostics, seconds: (performance.now() - started) / 1000 }
+  const peakMb = maxRss ? Math.round(Number(maxRss) / 1024 / 1024) : undefined
+  return { program, diagnostics, seconds: (performance.now() - started) / 1000, peakMb }
 }
 
 async function main() {
@@ -92,11 +122,13 @@ async function main() {
     process.exit(2)
   }
 
-  const results = await Promise.all(programs.map(run))
+  // One after another (#939): the peak is one compiler's memory, not the three's together.
+  const results: Result[] = []
+  for (const program of programs) results.push(await run(program))
   let failed = false
-  const summary: string[] = ['| program | errors | baseline | took |', '|---|---:|---:|---:|']
+  const summary: string[] = ['| program | errors | baseline | took | peak memory |', '|---|---:|---:|---:|---:|']
 
-  for (const { program, diagnostics, seconds } of results) {
+  for (const { program, diagnostics, seconds, peakMb } of results) {
     const r = gate({
       name: program.name,
       diagnostics,
@@ -105,8 +137,9 @@ async function main() {
       update,
       updateCommand: 'bun run typecheck --update',
     })
-    console.log(`${program.name}: ${r.current} errors, baseline ${r.baseline} (${program.compiler}, ${seconds.toFixed(0)} s)`)
-    summary.push(`| ${program.name} | ${r.current} | ${r.baseline} | ${seconds.toFixed(0)} s |`)
+    const peak = peakMb ? `${peakMb} MB` : 'n/a'
+    console.log(`${program.name}: ${r.current} errors, baseline ${r.baseline} (${program.compiler}, ${seconds.toFixed(0)} s, peak ${peak})`)
+    summary.push(`| ${program.name} | ${r.current} | ${r.baseline} | ${seconds.toFixed(0)} s | ${peak} |`)
     failed ||= r.failed
   }
 
