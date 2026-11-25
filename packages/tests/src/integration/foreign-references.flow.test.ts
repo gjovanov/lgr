@@ -135,7 +135,9 @@ describe('a write never stores another org\'s record by id', () => {
       { path: '/invoicing/cash-order', key: 'cashOrder', model: CashOrder, make: () => bodies.cashOrder(ownRefs()), change: { contactId: foreignRef('contactId') }, field: 'contactId' },
       { path: '/invoicing/payment-order', key: 'paymentOrder', model: PaymentOrder, make: () => bodies.paymentOrder(ownRefs()), change: { bankAccountId: foreignRef('bankAccountId') }, field: 'bankAccountId' },
       { path: '/accounting/journal', key: 'journalEntry', model: JournalEntry, make: () => bodies.journal(ownRefs()), change: bodies.journal({ ...ownRefs(), accountId: foreignRef('accountId') }), field: 'lines' },
-      { path: '/warehouse/inventory-count', key: 'inventoryCount', model: InventoryCount, make: () => bodies.inventoryCount(ownRefs()), change: { warehouseId: foreignRef('warehouseId') }, field: 'warehouseId' },
+      // FR-33.14: a count with lines keeps its warehouse (422 `count_warehouse_locked`), so the move empties the lines
+      // too, and it is the reference guard that refuses it.
+      { path: '/warehouse/inventory-count', key: 'inventoryCount', model: InventoryCount, make: () => bodies.inventoryCount(ownRefs()), change: { warehouseId: foreignRef('warehouseId'), lines: [] }, field: 'warehouseId' },
       { path: '/warehouse/movement', key: 'stockMovement', model: StockMovement, make: () => bodies.movement(ownRefs()), change: { contactId: foreignRef('contactId') }, field: 'contactId' },
       { path: '/invoices', key: 'invoice', model: Invoice, make: () => bodies.invoice(ownRefs()), change: { contactId: foreignRef('contactId') }, field: 'contactId' },
     ]

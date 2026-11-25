@@ -419,7 +419,8 @@ fn try_update(root: &Root) -> Result<bool> {
         let dest = staging.join(&offer.name);
         tracing::info!(version = %offer.version, bytes = offer.size, "downloading an update");
         let url = format!("{}/api/node/v1/server-release/{}/{}", ctx.server, offer.version, offer.name);
-        let got = rt.block_on(https.download(&url, &dest, offer.size, Duration::from_secs(2 * 3600)))?;
+        // ⚠ With the node's token, as the offer: without it global answers 401 (`NodeAuth`).
+        let got = rt.block_on(https.download(&url, Some(&ctx.token), &dest, offer.size, Duration::from_secs(2 * 3600)))?;
         let result = (|| -> Result<()> {
             if got != offer.size {
                 anyhow::bail!("the bundle came as {got} bytes, not the {} offered", offer.size);

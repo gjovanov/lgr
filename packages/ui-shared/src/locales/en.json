@@ -3052,6 +3052,8 @@
       "receipt_is_reversal": "This receipt gives back the goods of a removed document. It is no delivery, and no bill pays for it."
     },
     "refusals": {
+      "count_article_repeated": "A count holds each article on one line. On more than one line: {articles}. Nothing was saved or booked.",
+      "count_warehouse_locked": "This count has {lines} lines, counted against its warehouse, so its warehouse cannot change. Remove the lines first.",
       "no_cost_layer": "„{product}“ ({sku}) has no cost layer in {warehouse}, so it cannot be booked out at a cost. Nothing was booked.",
       "insufficient_cost_layers": "The cost layers of „{product}“ ({sku}) in {warehouse} hold {available}, and {needed} is to be booked out. Nothing was booked.",
       "transfer_without_from_warehouse": "A transfer takes goods out of a warehouse: choose „From Warehouse“ too. Goods arriving from outside are a receipt.",

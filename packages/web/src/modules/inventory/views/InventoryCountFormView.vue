@@ -167,6 +167,7 @@ import { completeInventoryCount, createInventoryCount, getInventoryCount, update
 import { listStockLevels } from '../api/stock-levels'
 import { listWarehouses } from '../api/warehouses'
 import { reportError } from 'ui-shared/composables/report-error'
+import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
@@ -496,7 +497,7 @@ async function save(quiet = false): Promise<boolean> {
     if (!quiet) showSuccess(t('common.savedSuccessfully'))
     return true
   } catch (e: any) {
-    refused(e?.response?.data?.message || t('common.operationFailed'))
+    refused(stockRefusalMessage(e, t))
     return false
   }
 }
@@ -524,7 +525,7 @@ async function completeCount() {
     succeeded()
     showSuccess(t('common.completedSuccessfully'))
   } catch (e: any) {
-    refused(e?.response?.data?.message || t('common.operationFailed'))
+    refused(stockRefusalMessage(e, t))
   } finally {
     saving.value = false
   }

@@ -296,3 +296,17 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
 - **The commands.** Accounting → Group costs (or `/org/:orgId/accounting/group-costs`) in the home, then
   `scripts/post-shadow-sales.ts --org <slug> --from <the override's day> --to <day> [--execute]` for each org of the
   split; its "Cost basis" line counts the overrides applied.
+
+## A card at the counter, on the cash account (2026-11-25, FR-25 R3, slice 3)
+
+- ⚠ **A card at the counter is booked on `501`, as cash is.** The books code a document paid at the counter `1` and
+  debit `501` what was paid, whatever the means: `sales.<kind>.card` books what LGR recorded as paid by card at the
+  counter on the document's day, after the cash. It is a rule of its own, so the accountant can point it elsewhere.
+
+- ⚠ **A real run refuses while the org lacks a rule the seed holds.** Without it every document that needs it is
+  refused, and a refused document's live posting is reversed: a run at a newer seed before `seed-posting-rules.ts`
+  would take the card sales out of the shadow. A dry run reads the missing rules from the seed and counts them.
+
+- **After a rule is added to the seed**, `scripts/seed-posting-rules.ts --org <slug> [--execute]` adds only the rules
+  an org lacks, then the next `post-shadow-sales.ts` over the months reposts the documents the new rule changes. Seed
+  first: the run's dry run plans the same before and after, the real run refuses before.
