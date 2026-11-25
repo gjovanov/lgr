@@ -45,6 +45,9 @@ export const STOCK_REFUSAL_CODES = [
   // FR-29.6: a booking the cost layers cannot carry, with the article and the warehouse by name.
   'no_cost_layer',
   'insufficient_cost_layers',
+  // FR-33.13, .14: a stock count with an article on two lines, and a warehouse changed under a count's lines.
+  'count_article_repeated',
+  'count_warehouse_locked',
 ] as const
 
 type Translate = (key: string, params?: Record<string, unknown>) => string

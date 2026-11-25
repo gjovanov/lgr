@@ -4,6 +4,7 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { resolveProductListFilter } from 'services/biz/product-list-query'
+import { lookupProductCode } from 'services/biz/product-code-lookup'
 import { QuickProductError, createQuickProduct } from 'services/biz/quick-product.service'
 import { findProductsByTierPrice, tierForSortKey } from 'services/biz/product-tier-sort'
 import { findProductsByStockColumn, stockColumnForSortKey } from 'services/biz/product-stock-sort'
@@ -174,6 +175,16 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
       }),
     },
   )
+  // FR-33.11: the article a typed or scanned code names, by the till's rule (exact barcode, else exact SKU, else the
+  // one active article the search finds): `{ product, matchedBy }`, or `{ product: null, matchedBy: null }` when the
+  // code names none or several. Under the read rule of `GET /warehouse/product`, so a count role needs no till rights.
+  .get('/lookup', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const code = typeof query.code === 'string' ? query.code.trim() : ''
+    const hit = code ? await lookupProductCode(orgId, code, query) : null
+    if (!hit) return { product: null, matchedBy: null }
+    return { product: redactProduct(grantOf(user), hit.product), matchedBy: hit.matchedBy }
+  }, { isSignIn: true })
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()

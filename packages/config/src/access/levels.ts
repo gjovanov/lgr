@@ -136,6 +136,9 @@ const IMPLIES: Partial<Record<CapabilityId, readonly CapabilityId[]>> = {
   'bulk-pricing.edit': EVERY_PRICE,
   'opening-stock.create': EVERY_PRICE,
   'movements.create:transfer': ['products.lookup', 'warehouses.lookup', 'categories.lookup', 'stock-levels.lookup', 'pricing.read'],
+  // FR-33.17: a count finds its articles (the search, Details, "Load products") and reads their stock in its warehouse.
+  'inventory-counts.create': ['products.lookup', 'stock-levels.lookup', 'warehouses.lookup', 'categories.lookup'],
+  'inventory-counts.edit': ['products.lookup', 'stock-levels.lookup', 'warehouses.lookup', 'categories.lookup'],
   'till.view': ['pricing.read', 'contacts.lookup'],
 }
 
