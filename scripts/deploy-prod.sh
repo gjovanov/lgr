@@ -25,8 +25,15 @@
 #   ./scripts/deploy-prod.sh --ocr-tag v20260726-a5beff4da7c0
 #   ./scripts/deploy-prod.sh --build-only        # build+push, no gitops bump
 #   ./scripts/deploy-prod.sh --dry-run           # print every mutating step, run none
-#   ./scripts/deploy-prod.sh --no-pull           # deploy the host checkout as-is
+#   ./scripts/deploy-prod.sh --no-pull           # deploy the checkout's commit (HEAD) without pulling;
+#                                                # its uncommitted or untracked files are NOT deployed
 #   SUPTO_RUNNING=<v> ./scripts/deploy-prod.sh   # the SUPTO version prod runs, when the pod cannot say
+#
+# #926: the image is built from a clean, detached `git worktree` of the commit in a temp dir, never
+# from the checkout's files: the build context, the Dockerfile, the two gates' JSON and the prune
+# script are all read from it. A `git pull` leaves a moved package's ignored `node_modules`/`dist`
+# behind (18 empty `packages/*` dirs reached the 2026-11-24 image), and an untracked file in the
+# checkout reached every image twice before (.dockerignore). The worktree is removed on any exit.
 #
 # FR-20.50: a build whose SUPTO version (packages/config/src/supto.json) is new and not declared to
 # НАП is refused, once anything is declared. See `supto_gate` below.
@@ -62,7 +69,26 @@ warn() { printf '\033[1;33m[deploy] WARN:\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[deploy] FATAL:\033[0m %s\n' "$*" >&2; exit 1; }
 run()  { if [[ $DRY == 1 ]]; then printf '  DRY: %s\n' "$*"; else "$@"; fi; }
 
-trap 'rc=$?; [[ $rc -eq 0 ]] || echo "DEPLOY_FAILED $SHA (exit $rc)"' EXIT
+# #926: the clean worktree the build reads (see build_worktree). WT_DIR is the temp dir holding it.
+WT_DIR="" WT=""
+remove_worktree() {
+  [[ -n "$WT_DIR" ]] || return 0
+  git -C "$SRC" worktree remove --force "$WT" >/dev/null 2>&1 || true
+  rm -rf -- "$WT_DIR"
+  git -C "$SRC" worktree prune >/dev/null 2>&1 || true
+  WT_DIR="" WT=""
+}
+# ONE handler for every exit (a second `trap … EXIT` would replace the first): report a failure as
+# before, then remove the worktree, keeping the exit code. Ctrl-C and a TERM exit through it too.
+on_exit() {
+  local rc=$?
+  [[ $rc -eq 0 ]] || echo "DEPLOY_FAILED $SHA (exit $rc)"
+  remove_worktree
+  exit "$rc"
+}
+trap on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Where the time went: `phase_done <name>` closes the phase that just ran.
 TIMINGS="" LAYERS=""
@@ -79,7 +105,7 @@ while [[ $# -gt 0 ]]; do
     --build-only) DO_BUMP=0 ;;
     --no-pull)    DO_PULL=0 ;;
     --dry-run)    DRY=1 ;;
-    -h|--help)    sed -n '2,40p' "$0"; exit 0 ;;
+    -h|--help)    sed -n '2,52p' "$0"; exit 0 ;;
     *)            die "unknown flag: $1" ;;
   esac
   shift
@@ -89,6 +115,8 @@ done
 # ── preflight ────────────────────────────────────────────────────────────────
 for bin in docker kubectl git awk jq; do command -v "$bin" >/dev/null || die "$bin not found — are you on master-node?"; done
 [[ -d "$SRC/.git" ]]         || die "source checkout missing: $SRC"
+# #926: forget the worktree of a run that died before its trap ran, once its temp dir is gone.
+git -C "$SRC" worktree prune
 [[ -f "$KUSTOMIZATION" ]]    || die "gitops checkout missing: $KUSTOMIZATION"
 docker info >/dev/null 2>&1  || die "docker daemon unreachable"
 kubectl -n "$NS" get deploy "$NS" >/dev/null || die "cannot reach cluster / namespace $NS"
@@ -102,6 +130,29 @@ fi
 SHA="$(git -C "$SRC" rev-parse --short HEAD)"
 log "Source at $SHA — $(git -C "$SRC" log -1 --pretty=%s)"
 
+# ── #926: build from the commit, never from the checkout's files ─────────────
+# A detached worktree of HEAD in a temp dir (outside the repo, so it is never in a build context),
+# removed by on_exit. Not `git archive`: an archive leaves out what .gitattributes marks
+# `export-ignore`; a worktree is a plain checkout of the commit. umask 022, so the files' modes, which
+# BuildKit's COPY cache key includes, do not depend on the shell that started the deploy. Made for a
+# --dry-run too: the gates read it, and it is only a temp dir.
+build_worktree() {
+  local commit
+  commit="$(git -C "$SRC" rev-parse --verify 'HEAD^{commit}')" || die "cannot resolve HEAD in $SRC"
+  WT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/lgr-deploy-src.XXXXXX")" || die "cannot create a temp dir for the build's worktree"
+  WT="$WT_DIR/lgr"
+  (umask 022 && git -C "$SRC" worktree add --detach --quiet "$WT" "$commit") \
+    || die "cannot create a clean worktree of $SHA at $WT (git worktree add failed): nothing was built"
+  [[ -f "$WT/Dockerfile" ]] || die "the worktree of $SHA at $WT has no Dockerfile: nothing was built"
+  log "Building from a clean worktree of $SHA: $WT"
+}
+if [[ $DO_BUILD == 1 ]]; then
+  build_worktree
+  if [[ $DO_PULL == 0 ]] && ! { git -C "$SRC" diff --quiet && git -C "$SRC" diff --cached --quiet; }; then
+    warn "$SRC has uncommitted changes: --no-pull deploys its commit $SHA, not its files"
+  fi
+fi
+
 df -h "$(docker info -f '{{.DockerRootDir}}' 2>/dev/null || echo /)" | tail -1
 
 # ── FR-20.50 (P3-8c): a SUPTO version travels only once declared ─────────────
@@ -111,7 +162,7 @@ df -h "$(docker info -f '{{.DockerRootDir}}' 2>/dev/null || echo /)" | tail -1
 # declared (LGR is not on НАП's list yet); then a declared version goes, and so does a build within
 # the version that runs. A --tag redeploy builds nothing: its image passed this at its build.
 supto_gate() {
-  local file="$SRC/packages/config/src/supto.json" new running
+  local file="$WT/packages/config/src/supto.json" new running
   [[ -f "$file" ]] || { warn "no $file: the SUPTO gate has nothing to read"; return 0; }
   new="$(jq -er '.version' "$file")" || die "packages/config/src/supto.json names no SUPTO version"
   if [[ "$(jq -r '.declared | length > 0' "$file")" != true ]]; then
@@ -135,7 +186,7 @@ if [[ $DO_BUILD == 1 && $DO_APP == 1 ]]; then supto_gate; fi
 # A tree whose build-kind.json says "testKeys": true makes a TEST build, which trusts licence and
 # identity keys named at run time. Only the field lanes' throwaway global runs one.
 test_keys_gate() {
-  local file="$SRC/packages/config/src/build-kind.json"
+  local file="$WT/packages/config/src/build-kind.json"
   [[ -f "$file" ]] || die "no $file: cannot tell whether $SHA makes a test build"
   [[ "$(jq -r '.testKeys' "$file")" == false ]] \
     || die "packages/config/src/build-kind.json does not say \"testKeys\": false. A TEST build trusts keys named at run time and is never deployed (FR-20 plan F.4.4)"
@@ -165,15 +216,16 @@ BUILT_TAG=""
 build_and_push() {   # $1 = repo suffix (lgr|lgr-ocr), $2 = dockerfile, $3… = extra build flags; sets BUILT_TAG
   local repo="$REGISTRY/$1" dockerfile="$2" tmp="$REGISTRY/$1:build-tmp" id buildlog
   local name="$1"; shift 2
+  [[ -n "$WT" && -d "$WT" ]] || die "no clean worktree to build $repo from (#926)"
   log "Building $repo (dockerfile: $dockerfile)"
   if [[ $DRY == 1 ]]; then
-    printf '  DRY: DOCKER_BUILDKIT=1 docker build --progress=plain %s -f %s -t %s %s\n' "$*" "$SRC/$dockerfile" "$tmp" "$SRC"
+    printf '  DRY: DOCKER_BUILDKIT=1 docker build --progress=plain %s -f %s -t %s %s\n' "$*" "$WT/$dockerfile" "$tmp" "$WT"
     BUILT_TAG="v00000000-000000000000"; return
   fi
   buildlog="$(mktemp)"
   # BuildKit, said out loud: the Dockerfile's reuse is BuildKit's content-keyed COPY. Plain
   # progress, so the log reads the same from a terminal as from nohup (layer_report parses it).
-  DOCKER_BUILDKIT=1 docker build --progress=plain "$@" -f "$SRC/$dockerfile" -t "$tmp" "$SRC" 2>&1 | tee "$buildlog"
+  DOCKER_BUILDKIT=1 docker build --progress=plain "$@" -f "$WT/$dockerfile" -t "$tmp" "$WT" 2>&1 | tee "$buildlog"
   [[ "$name" == lgr ]] && LAYERS="$(layer_report "$buildlog")"
   rm -f "$buildlog"
   phase_done "build-$name"
@@ -190,7 +242,7 @@ build_and_push() {   # $1 = repo suffix (lgr|lgr-ocr), $2 = dockerfile, $3… = 
 
 if [[ $DO_BUILD == 1 ]]; then
   log "Pruning old local image tags (keeps 2, trims the builder cache to its budget)"
-  run "$SRC/scripts/prune-docker-tags.sh" --apply
+  run "$WT/scripts/prune-docker-tags.sh" --apply
   phase_done prepare
   # OS_REFRESH: the OS packages are not pinned, so they are reinstalled once a month (Dockerfile).
   if [[ $DO_APP == 1 ]]; then build_and_push lgr Dockerfile --build-arg "OS_REFRESH=$(date +%Y-%m)"; APP_TAG="$BUILT_TAG"; fi
