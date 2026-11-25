@@ -75,7 +75,8 @@ pub async fn sync_once(data: &Path, client: &Https, server: &str, token: &str) -
         if std::fs::metadata(&dest).map(|m| m.len()).ok() == Some(*size) {
             continue;
         }
-        let got = client.download(&format!("{server}/api/desktop/download/{version}/{name}"), &dest, *size, DOWNLOAD_TIMEOUT).await?;
+        // Global's download page for the tills is public: no token goes with it.
+        let got = client.download(&format!("{server}/api/desktop/download/{version}/{name}"), None, &dest, *size, DOWNLOAD_TIMEOUT).await?;
         if got != *size {
             let _ = std::fs::remove_file(&dest);
             bail!("{name} came as {got} bytes, not the {size} global listed");

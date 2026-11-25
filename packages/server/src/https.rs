@@ -121,10 +121,13 @@ impl Https {
     }
 
     /// Download `url` into `dest`: through `dest.part`, renamed only once whole, never more than `max`
-    /// bytes, within `timeout`. Returns the size.
-    pub async fn download(&self, url: &str, dest: &std::path::Path, max: u64, timeout: Duration) -> Result<u64> {
+    /// bytes, within `timeout`, sending `bearer` when one is given. Returns the size.
+    ///
+    /// ⚠ Every route under global's `/api/node/v1` refuses a call without the node's token
+    /// (`NodeAuth`), the update bundle's included.
+    pub async fn download(&self, url: &str, bearer: Option<&str>, dest: &std::path::Path, max: u64, timeout: Duration) -> Result<u64> {
         let part = dest.with_extension(format!("{}part", dest.extension().map(|e| format!("{}.", e.to_string_lossy())).unwrap_or_default()));
-        let result = tokio::time::timeout(timeout, self.download_now(url, &part, max)).await;
+        let result = tokio::time::timeout(timeout, self.download_now(url, bearer, &part, max)).await;
         match result {
             Ok(Ok(size)) => {
                 tokio::fs::rename(&part, dest).await.with_context(|| format!("moving {} into place", dest.display()))?;
@@ -141,7 +144,7 @@ impl Https {
         }
     }
 
-    async fn download_now(&self, url: &str, part: &std::path::Path, max: u64) -> Result<u64> {
+    async fn download_now(&self, url: &str, bearer: Option<&str>, part: &std::path::Path, max: u64) -> Result<u64> {
         use tokio::io::AsyncWriteExt;
         let (host, port, path) = split_url(url)?;
         let tls = self.connect(&host, port).await?;
@@ -149,13 +152,15 @@ impl Https {
         tokio::spawn(async move {
             let _ = conn.await;
         });
-        let req = hyper::Request::builder()
+        let mut req = hyper::Request::builder()
             .method("GET")
             .uri(path.as_str())
             .header(hyper::header::HOST, if port == 443 { host.clone() } else { format!("{host}:{port}") })
-            .header(hyper::header::USER_AGENT, concat!("lgr-server/", env!("CARGO_PKG_VERSION")))
-            .body(Full::new(Bytes::new()))?;
-        let res = sender.send_request(req).await.with_context(|| format!("GET {url}"))?;
+            .header(hyper::header::USER_AGENT, concat!("lgr-server/", env!("CARGO_PKG_VERSION")));
+        if let Some(token) = bearer {
+            req = req.header(hyper::header::AUTHORIZATION, format!("Bearer {token}"));
+        }
+        let res = sender.send_request(req.body(Full::new(Bytes::new()))?).await.with_context(|| format!("GET {url}"))?;
         if res.status() != hyper::StatusCode::OK {
             bail!("GET {url} answered {}", res.status());
         }
@@ -325,6 +330,32 @@ mod tests {
         let stranger = Https::with_roots(fake_global().await.1, rules).unwrap();
         assert!(stranger.json("GET", &format!("https://global.test:{port}/"), None, None).await.is_err());
     }
+
+    #[tokio::test]
+    async fn a_download_carries_the_bearer_it_is_given() {
+        // As global's node routes do (`NodeAuth`): the update bundle only with the node's token. The
+        // update helper downloaded it with none, so no master could take global's offer.
+        let server = super::testkit::global_with_head(|_, path, head| {
+            let bearer = head.lines().any(|l| l.trim().eq_ignore_ascii_case("authorization: bearer tok"));
+            match (path, bearer) {
+                ("/bundle", true) => (200, b"0123456789".to_vec()),
+                ("/bundle", false) => (401, vec![]),
+                _ => (404, vec![]),
+            }
+        })
+        .await;
+        let dir = tempfile::tempdir().unwrap();
+        let url = format!("{}/bundle", server.url);
+        let dest = dir.path().join("bundle.tar.gz");
+        assert_eq!(server.client.download(&url, Some("tok"), &dest, 100, Duration::from_secs(30)).await.unwrap(), 10);
+        assert_eq!(std::fs::read(&dest).unwrap(), b"0123456789");
+
+        let refused = dir.path().join("refused.tar.gz");
+        let err = server.client.download(&url, None, &refused, 100, Duration::from_secs(30)).await.unwrap_err();
+        assert!(format!("{err:#}").contains("answered 401"), "{err:#}");
+        assert!(!refused.exists());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1, "nothing but the first download is left");
+    }
 }
 
 /// A fake global for tests elsewhere in the crate: a TLS server for `global.test` on a test CA, one
@@ -344,6 +375,14 @@ pub(crate) mod testkit {
     pub async fn global<F>(handler: F) -> Server
     where
         F: Fn(&str, &str) -> (u16, Vec<u8>) + Send + Sync + 'static,
+    {
+        global_with_head(move |method, path, _head| handler(method, path)).await
+    }
+
+    /// As `global`, with the request's head (its request line and headers) for the handler to read.
+    pub async fn global_with_head<F>(handler: F) -> Server
+    where
+        F: Fn(&str, &str, &str) -> (u16, Vec<u8>) + Send + Sync + 'static,
     {
         let handler = Arc::new(handler);
         let ca_key = rcgen::KeyPair::generate().unwrap();
@@ -381,7 +420,7 @@ pub(crate) mod testkit {
                     let text = String::from_utf8_lossy(&head).to_string();
                     let mut first = text.lines().next().unwrap_or("").split_whitespace();
                     let (method, path) = (first.next().unwrap_or("").to_string(), first.next().unwrap_or("").to_string());
-                    let (status, body) = handler(&method, &path);
+                    let (status, body) = handler(&method, &path, &text);
                     let reason = if status == 200 { "OK" } else { "X" };
                     let _ = tls.write_all(format!("HTTP/1.1 {status} {reason}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()).as_bytes()).await;
                     let _ = tls.write_all(&body).await;
