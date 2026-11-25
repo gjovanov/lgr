@@ -175,7 +175,7 @@
   },
   "packages/api/src/invoicing/controllers/pos.controller.ts": {
     "lgr/catch-drops-error": 1,
-    "lgr/no-as-any": 31
+    "lgr/no-as-any": 30
   },
   "packages/api/src/invoicing/controllers/product-supply.controller.ts": {
     "lgr/no-as-any": 2

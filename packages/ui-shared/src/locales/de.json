@@ -3039,6 +3039,8 @@
       "receipt_is_reversal": "Dieser Wareneingang gibt die Ware eines entfernten Dokuments zurück. Er ist keine Lieferung und wird nicht abgerechnet."
     },
     "refusals": {
+      "count_article_repeated": "Eine Inventur führt jeden Artikel in einer Zeile. In mehr als einer Zeile: {articles}. Es wurde nichts gespeichert oder gebucht.",
+      "count_warehouse_locked": "Diese Inventur hat {lines} Zeilen, gezählt für ihr Lager, daher kann das Lager nicht gewechselt werden. Entfernen Sie zuerst die Zeilen.",
       "no_cost_layer": "„{product}“ ({sku}) hat in {warehouse} keine Kostenschicht und kann nicht zu Kosten ausgebucht werden. Es wurde nichts gebucht.",
       "insufficient_cost_layers": "Die Kostenschichten von „{product}“ ({sku}) in {warehouse} decken {available}, auszubuchen sind {needed}. Es wurde nichts gebucht.",
       "transfer_without_from_warehouse": "Eine Umlagerung nimmt Ware aus einem Lager: Wählen Sie auch „Von Lager“. Ware von außen ist ein Zugang.",

@@ -21,7 +21,7 @@ const ROOT = resolve(import.meta.dir, '..', '..', '..', '..')
 const PACKAGES = join(ROOT, 'packages')
 
 const CONTROLLER_MODEL_CALLS = 255
-const AS_ANY = 1972
+const AS_ANY = 1971
 
 const COPY = 'copies, compares or replays documents as they are stored, which Mongoose would cast, default and hook'
 const HOME = "writes the org's home or legal-series state below the home guard, on purpose (home-write-guard's RAW_WRITE_SITES)"
@@ -75,7 +75,7 @@ const LARGE_FILES: Record<string, number> = {
   'web/src/modules/inventory/views/MovementFormView.vue': 1407,
   'services/src/biz/cash-sale-invoice.service.ts': 1379,
   'fiscal/src/eltrade.ts': 1357,
-  'api/src/invoicing/controllers/pos.controller.ts': 1196,
+  'api/src/invoicing/controllers/pos.controller.ts': 1136,
   'services/src/biz/oauth.service.ts': 1162,
   'services/src/biz/backup/backup-restore.service.ts': 1158,
   'services/src/biz/reservation-ops.service.ts': 1133,

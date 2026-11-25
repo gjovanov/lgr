@@ -76,8 +76,8 @@ const REASONS: Record<string, string> = {
 function print(r: ShadowRunReport): void {
   console.log(`Org ${slug} — ${execute ? 'EXECUTE' : 'DRY-RUN'} — business days ${r.from} to ${r.to}`)
   console.log('\nThe rules')
-  if (r.rules.fromSeed) console.log(`  none stored: evaluated with the ${r.rules.active} a seed adds (scripts/seed-posting-rules.ts)`)
-  else row(r.rules.stored, `stored, ${r.rules.active} active`)
+  row(r.rules.stored, `stored, ${r.rules.active} active`)
+  if (r.rules.fromSeed) row(r.rules.fromSeed, 'the seed holds and the org lacks: read from the seed by this dry run; a real run refuses until scripts/seed-posting-rules.ts adds them')
   console.log(`\nCost basis: each group's moving average replayed from the books, at the start of each sale's day (${r.cost.buckets} group-day sums, from ${r.cost.from ? `the opening of ${r.cost.from}` : 'the first entry'}, ${r.cost.asBooked ? 'as booked' : 'base amounts'})`)
   console.log(`  the accountant's overrides of a group's average applied: ${r.cost.overrides} (Accounting → Group cost overrides)`)
 
