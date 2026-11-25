@@ -1,6 +1,8 @@
 # The build context is `COPY . /app` (Dockerfile), so anything not excluded here ends up in the
 # image. This file must cover at least what `.gitignore` keeps out of git (S-10): a secret that is
 # safe from a commit is not safe from `docker build` run in a working copy.
+# Production builds no longer run in one: since #926 `scripts/deploy-prod.sh` builds from a clean
+# worktree of the commit. The entries below still guard a build run in a working copy.
 # ⚠ A pattern without `**/` matches only at the root of the context.
 
 # Dependencies and build output (installed and built inside the image).
@@ -26,7 +28,7 @@ bun.lockb
 **/ap_*.json
 **/*.db
 # Left untracked in the build host's checkout by a one-off script, and copied into every image
-# built from it until 2026-11-10: the context is the working copy, not the commit.
+# built from it until 2026-11-10: the context was the working copy, not the commit (until #926).
 **/invoice-lines-backup-*.json
 # The same for a script left at the root of that checkout (`backup-diag.ts`, still there on
 # 2026-11-11). The repo keeps no TypeScript at the root, so the root's `*.ts` is never the app's.

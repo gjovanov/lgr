@@ -379,3 +379,21 @@ counts only and has no `--execute`. Design: FR-25 §9, "R4, slice 2: the rows pa
   note, the cross-store count, a later register, a row dated early, the rows left by partner),
   `integration/purchase-receipt-pairing.flow.test.ts` (a split's home and store, every outcome, nothing written, the
   script's output with and without `--details`).
+
+## A наложен платеж as the books book it, and a switch over a rule (2026-11-25, FR-25 R3, slice 3)
+
+Question 5 of slice 3, answered by the owner the same day: the shadow books a наложен платеж as the books do, by a rule of
+its own that is on by default and can be switched off. The books code 13 of the 14 compared `1` and debit `501` the
+total on the invoice's day, while LGR records no payment until the courier pays. The seed holds a third paid rule per
+kind of document, eighteen rules, not fifteen, and `scripts/switch-posting-rule.ts` turns a rule on or off. FR-25 §9,
+"R3: the cash place, explained".
+- ⚠ **A наложен платеж is booked as paid on its day, its whole total.** `sales.<kind>.cash_on_delivery` books
+  `D501 K411[partner]` what the counter did not take of the total that day, so a same-day payment is never booked twice;
+  the courier's money recorded on a later day is a receipt of its own.
+- ⚠ **Its rule is the one switch: off, a наложен платеж posts as LGR holds it.** A rule that is off is ignored, and a
+  document that then lacks a rule for an amount it has waits (a payment LGR holds, a line, the VAT). A наложен платеж
+  has no such amount in LGR until the courier pays, so it posts with nothing paid instead. A switched rule is the
+  accountant's, a seed never turns it back, and what is posted changes only when a run covers its day.
+- **Tests:** `unit/shadow-sales.test.ts` (the total on its day, a later receipt, part taken at the counter, a credit
+  note, the rule off, two rules), `integration/shadow-sales.flow.test.ts` (the seed's eighteen; posted, switched off
+  and reposted without it, the seed leaves it off, an unknown code; the switch script's dry run).

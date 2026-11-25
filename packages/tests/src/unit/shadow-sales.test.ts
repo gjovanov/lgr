@@ -141,6 +141,27 @@ describe('the posting of a sales document (§1.4)', () => {
     expect(ops(p).at(-1)).toEqual([6, '501', null, '411', CUSTOMER, -38.4, null])
   })
 
+  it('books a наложен платеж\'s total as paid on its day, as the books do; with its rule off, as LGR holds it', () => {
+    const cod = (over: Partial<ShadowDocument> = {}, rules = SALES_POSTING_RULES) => postShadowSale(doc({ paymentMethod: 'cash_on_delivery', ...over }), input({ rules }))
+    expect(ops(posting(cod())).at(-1)).toEqual([6, '501', null, '411', CUSTOMER, 38.4, null])
+    expect(ops(posting(cod()))).toHaveLength(6)
+    // The courier's money recorded on another day is a receipt of its own: the day still books the whole total.
+    expect(ops(posting(cod({ payments: [{ date: new Date('2026-03-06T09:00:00.000Z'), amount: 38.4, method: 'cash', origin: 'payment_receipt' }] }))).slice(5))
+      .toEqual([[6, '501', null, '411', CUSTOMER, 38.4, null]])
+    // What the counter took on the day is booked as taken, and only the rest as the courier's: never twice.
+    expect(ops(posting(cod({ payments: [{ date: new Date('2026-03-03T15:00:00.000Z'), amount: 8.4, method: 'cash', origin: 'payment_receipt' }] }))).slice(5))
+      .toEqual([[6, '501', null, '411', CUSTOMER, 8.4, null], [7, '501', null, '411', CUSTOMER, 30, null]])
+    // A credit note: negative, on the same sides.
+    expect(ops(posting(cod({ type: 'credit_note' }))).at(-1)).toEqual([6, '501', null, '411', CUSTOMER, -38.4, null])
+    // The switch: with its rule off it posts as LGR holds it, nothing paid, and waits for no rule.
+    const off = SALES_POSTING_RULES.map(r => (r.code === 'sales.invoice.cash_on_delivery' ? { ...r, isActive: false } : r))
+    expect(ops(posting(cod({}, off)))).toEqual(ops(posting(postShadowSale(doc(), input()))))
+    // No other method books it, and two rules for it are refused.
+    expect(ops(posting(postShadowSale(doc({ paymentMethod: 'bank_transfer' }), input())))).toHaveLength(5)
+    const twice: PostingRuleData[] = [...SALES_POSTING_RULES, { ...SALES_POSTING_RULES.find(r => r.code === 'sales.invoice.cash_on_delivery')!, code: 'sales.invoice.cod.again' }]
+    expect(cod({}, twice)).toEqual({ refused: 'rules_overlap', detail: 'cash_on_delivery.paid' })
+  })
+
   it('books a document of services alone on 703 with the whole base, and no cost', () => {
     const p = posting(postShadowSale(doc({ lines: [line('s1', 3, 1.11)], subtotal: 3.33, taxTotal: 0.67, total: 4 }), input()))
     expect(ops(p)).toEqual([
@@ -273,12 +294,15 @@ describe('what a run does with a document', () => {
 })
 
 describe('the seeded rules (§3.7)', () => {
-  it('five per kind of sales document, each code once, naming the accounts and roots of §1.4', () => {
-    expect(SALES_POSTING_RULES).toHaveLength(15)
-    expect(new Set(SALES_POSTING_RULES.map(r => r.code)).size).toBe(15)
+  it('six per kind of sales document, each code once, naming the accounts and roots of §1.4', () => {
+    expect(SALES_POSTING_RULES).toHaveLength(18)
+    expect(new Set(SALES_POSTING_RULES.map(r => r.code)).size).toBe(18)
     // A card at the counter is booked on the cash account, as the books book it.
     expect(SALES_POSTING_RULES.filter(r => r.match.paymentMethod === 'card').map(r => [r.code, r.operations[0].debit, r.operations[0].credit]))
       .toEqual([['sales.invoice.card', '501', '411'], ['sales.debit_note.card', '501', '411'], ['sales.credit_note.card', '501', '411']])
+    // So is a наложен платеж, and its rule is seeded on, as the books have it.
+    expect(SALES_POSTING_RULES.filter(r => r.match.paymentMethod === 'cash_on_delivery').map(r => [r.code, r.isActive, r.operations[0].debit, r.operations[0].credit]))
+      .toEqual([['sales.invoice.cash_on_delivery', true, '501', '411'], ['sales.debit_note.cash_on_delivery', true, '501', '411'], ['sales.credit_note.cash_on_delivery', true, '501', '411']])
     expect(namedByRules(SALES_POSTING_RULES)).toEqual({ accounts: ['304', '411', '4532', '501', '702', '703'], roots: ['КЛИЕНТИ', 'СТОКИ'] })
     // Production and advances are not this slice's: no rule names them.
     expect(namedByRules(SALES_POSTING_RULES).accounts).not.toContain('701')
@@ -289,7 +313,7 @@ describe('the seeded rules (§3.7)', () => {
     const codes = new Set(['sales.invoice.goods'])
     const plan = planSeed(codes, new Set(CHART.keys()), new Set(['КЛИЕНТИ', 'СТОКИ']))
     expect(plan.create.map(r => r.code)).not.toContain('sales.invoice.goods')
-    expect([plan.create.length, plan.kept, plan.missingAccounts, plan.missingRoots]).toEqual([14, 1, [], []])
+    expect([plan.create.length, plan.kept, plan.missingAccounts, plan.missingRoots]).toEqual([17, 1, [], []])
     const thin = planSeed(new Set(), new Set(['411', '702']), new Set(['КЛИЕНТИ']))
     expect([thin.missingAccounts, thin.missingRoots]).toEqual([['304', '4532', '501', '703'], ['СТОКИ']])
   })

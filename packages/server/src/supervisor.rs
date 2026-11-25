@@ -395,6 +395,8 @@ impl Supervisor {
             "front": self.front_now(),
             "registration": self.registrar.lock().unwrap().as_ref().and_then(|r| crate::register::current(&r.data)),
             "uplink": self.uplink.lock().unwrap().clone(),
+            // #785: the mirror pump's running totals for this process (pages built, acked, resent).
+            "replicationPump": crate::replication::PAGES.json(),
             "desktopReleases": self.releases.lock().unwrap().clone(),
             "children": children,
             "licences": self.registrar.lock().unwrap().as_ref().map(|r| crate::licence::list(&r.data)),

@@ -122,7 +122,7 @@
               persistent-hint
               variant="outlined"
               density="comfortable"
-              placeholder="http://proxy.example:8080"
+              :placeholder="PROXY_PLACEHOLDER"
               data-field="proxy"
             />
           </v-card-text>
@@ -212,6 +212,12 @@ const serverDialog = ref(false)
 const rotateDialog = ref(false)
 
 const logLevels = ['error', 'warn', 'info', 'debug']
+/**
+ * ⚠ Kept out of the template on purpose. vue-tsc (3.3.14) rewrites `//` in a component's props to
+ * `/* … *\/` in its generated code, so a literal `http://…` attribute broke that line's syntax, ended
+ * the `v-if="form"` block early, and reported `form` as possibly null on the next v-model.
+ */
+const PROXY_PLACEHOLDER = 'http://proxy.example:8080'
 const localeItems = computed(() => [
   { value: '', label: t('shell.settings.languageSystem') },
   ...LOCALE_OPTIONS,

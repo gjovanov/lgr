@@ -110,7 +110,7 @@ Interactive equivalent (when you're already on the host): `cd ~/lgr && ./scripts
 ./scripts/deploy-prod.sh --tag v20260727-...   # no build: redeploy / roll back to an existing tag
 ./scripts/deploy-prod.sh --ocr-tag v20260726-...
 ./scripts/deploy-prod.sh --build-only          # build+push, no gitops bump
-./scripts/deploy-prod.sh --no-pull             # deploy the host checkout as-is
+./scripts/deploy-prod.sh --no-pull             # deploy the checkout's commit (HEAD) without pulling; not its uncommitted files
 ./scripts/deploy-prod.sh --dry-run             # print every mutating step, run none
 ```
 
@@ -202,11 +202,15 @@ First request after a pod restart pays ~6s cold start (Bun JIT + Mongoose compil
   cache instead, so every build was cold, here and for every other project on the host: never
   run `docker builder prune -af` there without `--keep-storage`.
 - **Uncommitted tracked changes in `~/lgr` abort the script** (untracked files are ignored).
-  ⚠ Untracked is not harmless: the build context is the working copy, so whatever lies in
-  `~/lgr` and `.dockerignore` does not name is copied into the image and pushed. Two
-  `invoice-lines-backup-*.json` files and a diagnostic script left there by one-off scripts
-  were in every image until 2026-11-10. Keep that checkout clean, and never write a script's
-  output into it.
+  **The image is built from a clean worktree of the commit, not from `~/lgr`'s files** (#926):
+  the script checks HEAD out, detached, into a temp dir (`$TMPDIR/lgr-deploy-src.*/lgr`), reads
+  the build context, the Dockerfile, both gates (`supto.json`, `build-kind.json`) and
+  `prune-docker-tags.sh` from there, and removes it on every exit (success, failure, Ctrl-C).
+  `git worktree prune` at the start forgets the record of a run that was killed outright. Until
+  then the context was the working copy: two `invoice-lines-backup-*.json` files and a diagnostic
+  script left there by one-off scripts were in every image until 2026-11-10, and 18 empty
+  `packages/*` directories of moved packages (their ignored `node_modules`/`dist`) were in the
+  2026-11-24 one. Still keep that checkout clean, and never write a script's output into it.
 - **CLAUDE.md's "Sync policy is Manual" is outdated** — the live app is `automated` with
   `prune` + `selfHeal` on branch `master`, path `k8s/overlays/prod`.
 - Cluster DNS is intermittently flaky (see Known Issues) → an ArgoCD sync can fail with
