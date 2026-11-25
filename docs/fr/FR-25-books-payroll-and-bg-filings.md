@@ -1134,9 +1134,9 @@ causes. Counts only; the rows stayed with the person who ran it.
 - **The rule, not the books, was short.** In those months the books book all but one card sale at the counter on
   `501`, the account they book cash on. The card's rule books what LGR recorded as paid by card at the counter on the
   document's day, after the cash, on the same accounts, so a split tender posts two operations.
-- **LGR's own records** of those 8 + 2 documents read as unpaid, or paid the wrong way, in LGR as well: in the aging
-  report and the customer's open balance. Across both stores LGR held 19 issued counter documents with no counter
-  payment, all in the home (14 of that one day, 5 credit notes), and none in the other store.
+- **LGR's own records.** The 8 are open in LGR as well, in the aging report and the customer's balance, and the 2
+  say cash where the books say bank. Across both stores, 19 issued documents whose method is cash or card hold no
+  counter payment in LGR, all in the home (14 of one import run, 5 credit notes), none in the other store.
 
 ### R3: the accountant's override of a group's average, as built
 
