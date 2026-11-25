@@ -159,7 +159,7 @@ export async function postShadowSales(orgId: string, opts: ShadowRunOptions): Pr
   const docRows: any[] = await Invoice.find({
     orgId: org, direction: 'outgoing', type: { $in: SALES_DOCUMENT_TYPES }, status: { $nin: NOT_ISSUED },
     issueDate: { $gte: new Date(from.getTime() - DAY_MS), $lt: new Date(to.getTime() + 2 * DAY_MS) },
-  }).select('invoiceNumber type direction status statusHistory tags issueDate currency subtotal discountTotal taxTotal total contactId cashSaleRef.cashSaleId lines.productId lines.quantity lines.unitPrice lines.discount lines.taxRate payments.date payments.amount payments.method payments.origin').lean()
+  }).select('invoiceNumber type direction status statusHistory tags issueDate currency subtotal discountTotal taxTotal total contactId cashSaleRef.cashSaleId paymentMethod lines.productId lines.quantity lines.unitPrice lines.discount lines.taxRate payments.date payments.amount payments.method payments.origin').lean()
   const docs = docRows.filter(d => { const day = sofiaDay(d.issueDate); return day >= from && day <= to })
 
   // The chart, and the products the documents sell with their groups, all of the posting org.
@@ -224,6 +224,7 @@ export async function postShadowSales(orgId: string, opts: ShadowRunOptions): Pr
       ...(d.contactId ? { contactId: String(d.contactId) } : {}),
       partner: c ? { vatNumber: c.vatNumber, taxId: c.taxId, name: c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ') } : undefined,
       ...(d.cashSaleRef?.cashSaleId ? { tillSale: true } : {}),
+      ...(d.paymentMethod ? { paymentMethod: String(d.paymentMethod) } : {}),
       lines: (d.lines ?? []).map((l: any) => ({ ...(l.productId ? { productId: String(l.productId) } : {}), quantity: Number(l.quantity) || 0, unitPrice: Number(l.unitPrice) || 0, discount: Number(l.discount) || 0, taxRate: l.taxRate })),
       payments: (d.payments ?? []).map((p: any) => ({ date: p.date ? new Date(p.date) : (undefined as never), amount: Number(p.amount) || 0, method: p.method, origin: p.origin })),
     }

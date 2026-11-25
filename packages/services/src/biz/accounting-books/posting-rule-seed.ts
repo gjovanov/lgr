@@ -4,13 +4,14 @@
  * written: `posting-rule.service.ts#seedPostingRules` inserts the ones an org lacks and never touches one it has, so
  * whatever the accountant changed stays.
  *
- * Seeded per kind of document, five rules each, applied together to a document (`shadow-sales.ts`):
+ * Seeded per kind of document, six rules each, applied together to a document (`shadow-sales.ts`):
  *   - goods lines: per goods group `D702 K304[СТОКИ:group]` with the group's quantity, at the group's cost; and
  *     `D411[КЛИЕНТИ:partner] K702` their net;
  *   - service lines: `D411[КЛИЕНТИ:partner] K703` their net;
  *   - the document: `D411[КЛИЕНТИ:partner] K4532` its VAT, and the sales register row it makes;
  *   - paid in cash as it was issued: `D501 K411[КЛИЕНТИ:partner]` what was paid;
- *   - paid by card as it was issued: `D501 K411[КЛИЕНТИ:partner]` what was paid.
+ *   - paid by card as it was issued: `D501 K411[КЛИЕНТИ:partner]` what was paid;
+ *   - cash on delivery (наложен платеж): `D501 K411[КЛИЕНТИ:partner]` its total, as paid on its day.
  *
  * ⚠ Cost of sales is a debit on revenue (`D702`), and a credit note books the same operations, negative, on the same
  * sides (§1.4, "three things that read as mistakes and are not"). Neither is a rule's choice: the seed keeps both.
@@ -18,6 +19,11 @@
  * ⚠ A card payment at the counter is booked on `501`, as cash is: the books code such a document `1` (paid on its own
  * operations) and debit `501` what was paid (2026-11-25: every card sale at the counter of the months compared but one).
  * It is a rule of its own so the accountant can point it at another account without touching cash.
+ *
+ * ⚠ A наложен платеж is booked as the books book it: paid in cash on its day, its whole total, although LGR records no
+ * payment until the courier pays (the books code it `1`; 2026-11-25: 13 of the 14 compared). Seeded on, as the books have
+ * it, and the one rule that is a switch (the owner's decision of 2026-11-25): turned off, a наложен платеж posts as LGR
+ * holds it, with nothing paid, instead of waiting for a rule (`scripts/switch-posting-rule.ts`).
  *
  * Out of this slice, and refused rather than guessed: production (`K701`, `D701 K303`) and advances (`K412`). A document
  * that needs them finds no rule and waits, counted.
@@ -98,6 +104,13 @@ function rulesOf(docKind: string): PostingRuleData[] {
       code: `sales.${docKind}.card`,
       label: `${label}: paid by card as it was issued`,
       match: match({ paymentMethod: 'card' }),
+      operations: [{ debit: CASH_ACCOUNT, credit: CUSTOMERS_ACCOUNT, amount: 'paid', analyticCredit: PARTNER_ANALYTIC }],
+    },
+    {
+      ...base,
+      code: `sales.${docKind}.cash_on_delivery`,
+      label: `${label}: cash on delivery, its total as paid on its day`,
+      match: match({ paymentMethod: 'cash_on_delivery' }),
       operations: [{ debit: CASH_ACCOUNT, credit: CUSTOMERS_ACCOUNT, amount: 'paid', analyticCredit: PARTNER_ANALYTIC }],
     },
   ]
