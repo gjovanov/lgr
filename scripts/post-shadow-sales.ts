@@ -79,6 +79,7 @@ function print(r: ShadowRunReport): void {
   if (r.rules.fromSeed) console.log(`  none stored: evaluated with the ${r.rules.active} a seed adds (scripts/seed-posting-rules.ts)`)
   else row(r.rules.stored, `stored, ${r.rules.active} active`)
   console.log(`\nCost basis: each group's moving average replayed from the books, at the start of each sale's day (${r.cost.buckets} group-day sums, from ${r.cost.from ? `the opening of ${r.cost.from}` : 'the first entry'}, ${r.cost.asBooked ? 'as booked' : 'base amounts'})`)
+  console.log(`  the accountant's overrides of a group's average applied: ${r.cost.overrides} (Accounting → Group cost overrides)`)
 
   console.log('\nThe documents')
   row(r.documents, "issued sales documents of the org's, in the period")

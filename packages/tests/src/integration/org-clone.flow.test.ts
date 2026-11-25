@@ -571,7 +571,7 @@ describe('every model with an orgId takes a side', () => {
   const CARRIED = [
     'AbsenceEntry', 'Account', 'AccountingAnalytic', 'AuditLog', 'BankAccount', 'BankReconciliation', 'CashOrder', 'Contact',
     'CostLayer', 'Employee', 'EmploymentContract', 'ExchangeRate', 'FiscalPeriod', 'FiscalPosition', 'FiscalYear', 'FixedAsset',
-    'InternalOrder', 'InventoryCount', 'Invoice', 'Journal', 'JournalEntry', 'LeaveBalance', 'OperationType', 'Order', 'OrgApp',
+    'GroupCostOverride', 'InternalOrder', 'InventoryCount', 'Invoice', 'Journal', 'JournalEntry', 'LeaveBalance', 'OperationType', 'Order', 'OrgApp',
     'OrgLogo', 'POSPaymentMethod', 'POSSession', 'POSTransaction', 'PaymentOrder', 'PaymentTerm', 'PayrollElement', 'PayrollRun',
     'Payslip', 'PostingRule', 'PriceList', 'Product', 'ProductCategory', 'ProductGroupMap', 'ProductSupplier', 'Reservation', 'Role', 'Sequence', 'StockLevel',
     'StockLocation', 'StockLot', 'StockMovement', 'SupplierProductAlias', 'Tag', 'TaxReturn', 'Timesheet', 'User',
@@ -632,6 +632,7 @@ describe('a real org that keeps a company\'s books (FR-25 R7)', () => {
     await coll('FixedAsset').insertOne({ orgId: org, code: `FA-${n}`, name: 'Машина', category: 'machinery', accountId: account.insertedId })
     await coll('VatRegisterEntry').insertOne({ orgId: org, period: '202503', side: 'sales', ledger: 'books', rowNo: n, docNumber: String(n) })
     await coll('ProductGroupMap').insertOne({ orgId: org, productId: new mongoose.Types.ObjectId(), analyticId: analytic.insertedId, source: 'learned', evidenceCount: 1, conflictCount: 0 })
+    await coll('GroupCostOverride').insertOne({ orgId: org, analyticId: analytic.insertedId, from: new Date('2026-03-05'), unitCost: 0.4, reason: 'Брак', createdBy: new mongoose.Types.ObjectId() })
     await coll('PostingRule').insertOne({ orgId: org, code: `sales.invoice.vat.${n}`, label: 'ДДС', isActive: true, match: { docKind: 'invoice', direction: 'outgoing' }, docType: '-ФЕ', operations: [{ debit: '411', credit: '4532', amount: 'vat' }], source: 'seed' })
     await coll('TaxReturn').insertOne({ orgId: org, period: '202503', kind: 'vat' })
     // The company's payroll (owner, 2026-11-20: it lives in the split's home): its people, sealed, and what names them.

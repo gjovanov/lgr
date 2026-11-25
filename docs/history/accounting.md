@@ -317,3 +317,29 @@ has no `--execute`. Design: FR-25 §9, "R4, slice 1: the pairing count, as built
 - **Tests:** `unit/purchase-pairing.test.ts` (the keys, the periods, the amounts and signs, each pass and each outcome),
   `integration/purchase-pairing.flow.test.ts` (a split's home and store, every outcome, nothing written, the script's
   output with and without `--details`).
+
+## The accountant's override of a group's average cost (2026-11-25, FR-25 R3)
+
+The accountant answered slice 3's first question: the cost is the daily average price, as until March, with an option to
+override it, because write-offs and other losses do not show in the average. The shadow keeps the group's moving
+average at the start of the sale's day, and `GroupCostOverride` (in the home) restates a group's average from a day
+on: `group-cost.ts` applies it at the start of its day, after an opening of the same day, and the replay goes on from
+there. Accounting → Group costs lists, adds, changes and removes them, with the replayed average beside the unit asked
+for (`GET /accounting/group-costs/average`). FR-25 §9, "R3: the accountant's override of a group's average".
+- ⚠ **An override restates the average; it moves no value.** It is the accountant's statement of what a unit of the
+  group costs from the start of its day: what is on hand is restated to it, what comes in after averages in with it,
+  and the write-off or revaluation it stands for stays in the books. Nothing writes it into the books, and the books'
+  cost of a sale still never feeds the average.
+
+- ⚠ **Overrides are the HOME's, matched by path.** One company has one average a group: every org of a split reads
+  the home's overrides by the group's path, as the replay reads the books (ids differ between orgs, R7). A store of a
+  split answers 409 `not_books_home`, so the list cannot fork.
+
+- ⚠ **An override changes nothing until a shadow run covers its day.** The posting hash carries the cost, so the next
+  `post-shadow-sales.ts` over its day reverses and reposts what it changes, on their own days. A run over later days
+  only never reaches the sales before them: after an override dated in the past, run the window from its day.
+- **Tests:** `unit/shadow-cost-compare.test.ts` (the restatement: the day's sales at it, a purchase after it, nothing
+  on hand, a group the books never held, an opening of its day and one before the first opening, two overrides, a
+  unit that is no amount), `integration/group-cost-override.flow.test.ts` (a store's sales post at the home's override
+  from its day; a change and a removal repost only what they change; the routes, the audit trail, a stale page, the
+  store and an org without books refused), `unit/group-costs-page.test.ts`.

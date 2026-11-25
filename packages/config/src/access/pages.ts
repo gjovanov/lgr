@@ -76,6 +76,8 @@ export const PAGE_ACCESS: Readonly<Record<string, PageAccess>> = {
   '/accounting/analytics': p('accounts.view'),
   // FR-25 R3, slice 2: the products' groups read with the chart; setting one is `accounts.edit` (routes.ts).
   '/accounting/product-groups': p('accounts.view'),
+  // FR-25 R3: the overrides of a group's average cost read with the chart; changing one is `accounts.edit` (routes.ts).
+  '/accounting/group-costs': p('accounts.view'),
   '/accounting/journal-entries': p('journal.view'),
   '/accounting/general-ledger': p('ledgers.view'),
   '/accounting/financial-statements': p('ledgers.view'),

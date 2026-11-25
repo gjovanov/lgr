@@ -70,6 +70,7 @@ export const BOOKS_NEVER_CLONED: Readonly<Record<string, string>> = {
   Employee: "the company's payroll: its people, sealed under a key the copy never gets",
   EmploymentContract: "the company's payroll: a person's employment and pay, sealed",
   FixedAsset: "the company's books: its fixed assets",
+  GroupCostOverride: "the company's books: the accountant's unit cost of a goods group from a day on",
   Journal: "the company's books: its journals",
   JournalEntry: "the company's books: the ledger",
   LeaveBalance: "the company's payroll: a person's leave",

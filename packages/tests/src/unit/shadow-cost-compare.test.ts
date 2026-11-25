@@ -123,6 +123,68 @@ describe('the books\' cost of a group as of a sale', () => {
   })
 })
 
+describe('the accountant\'s override of a group\'s average', () => {
+  const override = (day: string, unitCost: number, path = G) => ({ path, day, unitCost })
+
+  it('restates what is on hand at the START of its day: the day\'s sales post at it, and the average goes on from it', () => {
+    const book = new GroupCostBook(
+      [bought('2026-03-02', 10, 10), sold('2026-03-04', 4, 4), bought('2026-03-05', 6, 9)],
+      [],
+      [override('2026-03-04', 0.4)],
+    )
+    expect(book.unitCostAt(G, '2026-03-03')).toBe(1)
+    expect(book.unitCostAt(G, '2026-03-04')).toBe(0.4)
+    expect(book.stateAt(G, '2026-03-04')).toEqual({ quantity: 10, value: 4, unitCost: 0.4 })
+    // The sale leaves at it: 6 left at 0.40, then the purchase averages in: (2.4 + 9) / 12.
+    expect(book.unitCostAt(G, '2026-03-05')).toBeCloseTo(0.4, 12)
+    expect(book.unitCostAt(G, '2026-03-06')).toBeCloseTo(11.4 / 12, 12)
+  })
+
+  it('with nothing on hand is the last average, until goods come in and cost what they cost', () => {
+    const book = new GroupCostBook(
+      [bought('2026-03-02', 4, 8), sold('2026-03-03', 4, 8), sold('2026-03-05', 1, 2), bought('2026-03-06', 2, 2)],
+      [],
+      [override('2026-03-04', 3)],
+    )
+    expect(book.unitCostAt(G, '2026-03-04')).toBe(3)
+    expect(book.unitCostAt(G, '2026-03-05')).toBe(3)
+    // One short: what came in restarts the average.
+    expect(book.unitCostAt(G, '2026-03-07')).toBe(1)
+  })
+
+  it('gives a cost from its day to a group the books never held', () => {
+    const book = new GroupCostBook([], [], [override('2026-03-05', 2)])
+    expect(book.unitCostAt(G, '2026-03-04')).toBeUndefined()
+    expect(book.unitCostAt(G, '2026-03-05')).toBe(2)
+    expect(book.unitCostAt(G, '2026-03-20')).toBe(2)
+  })
+
+  it('applies after an opening of its own day, and one before the first opening is none', () => {
+    const opening = move('2026-01-01', { opening: true, debit: 30, quantityDebit: 20 })
+    expect(new GroupCostBook([opening], ['2026-01-01'], [override('2025-12-20', 5)]).unitCostAt(G, '2026-01-02')).toBe(1.5)
+    const book = new GroupCostBook([opening], ['2026-01-01'], [override('2026-01-01', 2)])
+    expect(book.unitCostAt(G, '2026-01-01')).toBe(2)
+    expect(book.stateAt(G, '2026-01-01')).toEqual({ quantity: 20, value: 40, unitCost: 2 })
+  })
+
+  it('touches only its own group and its own days, and a later one restates again', () => {
+    const OTHER = 'СТОКИ:ДРУГА'
+    const book = new GroupCostBook(
+      [bought('2026-03-02', 10, 10), { ...bought('2026-03-02', 10, 30), path: OTHER }],
+      [],
+      [override('2026-03-03', 0.5), override('2026-03-06', 0.8)],
+    )
+    expect(book.unitCostAt(OTHER, '2026-03-04')).toBe(3)
+    expect(book.unitCostAt(G, '2026-03-05')).toBe(0.5)
+    expect(book.unitCostAt(G, '2026-03-06')).toBe(0.8)
+  })
+
+  it('is none when its unit is not an amount', () => {
+    const book = new GroupCostBook([bought('2026-03-02', 10, 10)], [], [override('2026-03-03', -1), override('2026-03-04', Number.NaN)])
+    expect(book.unitCostAt(G, '2026-03-05')).toBe(1)
+  })
+})
+
 const CUSTOMER = 'c1'
 const OTHER_CUSTOMER = 'c2'
 const G1 = 'g1'

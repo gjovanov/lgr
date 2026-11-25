@@ -32,7 +32,26 @@
  *   - **No quantity on hand keeps the last average** (§3.5); with none ever, the books' last booked unit cost of a sale
  *     of the group, and until there is one, what goes out goes out as booked. A group the books never held before the
  *     day has no cost, and its document waits.
+ *   - **The accountant's override restates the group's average from its day on** (`CostOverride`, 2026-11-25: "the
+ *     daily average price, with an option to override it, for write-offs and other losses the average does not
+ *     show"). At the START of its day, after an opening of the same day, what is on hand costs the override's unit, so
+ *     the day's sales post at it; what comes in after averages in with it, and what goes out leaves at it, as with any
+ *     average. With nothing on hand it is the last average, until goods come in and cost what they cost. It moves no
+ *     value of its own: the books carry the write-off or revaluation it stands for. An override before the window's
+ *     first opening is none: the opening restates the year.
  */
+
+/**
+ * The accountant's unit cost for a goods group from a business day on (`GroupCostOverride`): the replay's average is
+ * restated to it at the start of `day` and goes on from there.
+ */
+export interface CostOverride {
+  path: string
+  /** `YYYY-MM-DD` */
+  day: string
+  /** EUR a unit of the group. */
+  unitCost: number
+}
 
 /** One business day's movement of one goods group on 304, summed over every org of the company's books. */
 export interface CostBucket {
@@ -70,12 +89,26 @@ interface Point {
 const EPS = 1e-9
 const unitOf = (s: State): number | undefined => (s.quantity > EPS && s.value >= 0 ? s.value / s.quantity : s.lastAverage ?? s.lastCreditUnit)
 const withAverage = (s: State): State => (s.quantity > EPS && s.value >= 0 ? { ...s, lastAverage: s.value / s.quantity } : s)
+/** What is on hand, restated to the accountant's unit; with nothing on hand only the last average is. */
+const restated = (s: State, unitCost: number): State => ({ ...s, ...(s.quantity > EPS ? { value: s.quantity * unitCost } : {}), lastAverage: unitCost })
+
+/** A group's state at the start of a day: what the override page shows beside the unit it would restate. */
+export interface GroupCostState {
+  quantity: number
+  value: number
+  /** The unit a sale of the day posts at, or nothing when the books held none of the group before. */
+  unitCost?: number
+}
 
 export class GroupCostBook {
   private readonly timelines = new Map<string, Point[]>()
 
-  /** `openingDays`: the days of the imported openings the buckets start from, whether or not they name a group. */
-  constructor(buckets: readonly CostBucket[], openingDays: readonly string[] = []) {
+  /**
+   * `openingDays`: the days of the imported openings the buckets start from, whether or not they name a group.
+   * `overrides`: the accountant's, at most one a group and day (the model's unique index); one before the first
+   * opening is none.
+   */
+  constructor(buckets: readonly CostBucket[], openingDays: readonly string[] = [], overrides: readonly CostOverride[] = []) {
     const byPath = new Map<string, Map<string, CostBucket[]>>()
     for (const b of buckets) {
       const days = byPath.get(b.path) ?? new Map<string, CostBucket[]>()
@@ -83,8 +116,17 @@ export class GroupCostBook {
       byPath.set(b.path, days)
     }
     const openings = new Set(openingDays)
+    const firstOpening = [...openings].sort()[0]
+    const overridden = new Map<string, Map<string, number>>()
+    for (const o of overrides) {
+      if (!Number.isFinite(o.unitCost) || o.unitCost < 0 || (firstOpening !== undefined && o.day < firstOpening)) continue
+      overridden.set(o.path, (overridden.get(o.path) ?? new Map<string, number>()).set(o.day, o.unitCost))
+    }
+    // A group the accountant gave a unit to has a cost from that day, held by the books or not.
+    for (const path of overridden.keys()) if (!byPath.has(path)) byPath.set(path, new Map())
     for (const [path, byDay] of byPath) {
-      const days = [...new Set([...byDay.keys(), ...openings])].sort()
+      const fixed = overridden.get(path)
+      const days = [...new Set([...byDay.keys(), ...openings, ...(fixed?.keys() ?? [])])].sort()
       const points: Point[] = []
       let state: State = { quantity: 0, value: 0 }
       for (const day of days) {
@@ -98,6 +140,8 @@ export class GroupCostBook {
             ...(state.lastCreditUnit !== undefined ? { lastCreditUnit: state.lastCreditUnit } : {}),
           })
         }
+        const unitCost = fixed?.get(day)
+        if (unitCost !== undefined) state = restated(state, unitCost)
         const start = state
         const moves = today.filter(b => !b.opening)
         const sum = (f: (b: CostBucket) => number) => moves.reduce((s, b) => s + f(b), 0)
@@ -133,8 +177,8 @@ export class GroupCostBook {
     }
   }
 
-  /** The group's unit cost at the start of `day` (`YYYY-MM-DD`), or nothing when the books held none of it before. */
-  unitCostAt(path: string, day: string): number | undefined {
+  /** The group's state at the start of `day` (`YYYY-MM-DD`): the day's own movements do not count. */
+  private stateOf(path: string, day: string): State | undefined {
     const points = this.timelines.get(path)
     if (!points) return undefined
     let lo = 0
@@ -146,6 +190,20 @@ export class GroupCostBook {
     }
     if (found < 0) return undefined
     const p = points[found]
-    return unitOf(p.day === day ? p.start : p.end)
+    return p.day === day ? p.start : p.end
+  }
+
+  /** The group's unit cost at the start of `day` (`YYYY-MM-DD`), or nothing when the books held none of it before. */
+  unitCostAt(path: string, day: string): number | undefined {
+    const s = this.stateOf(path, day)
+    return s ? unitOf(s) : undefined
+  }
+
+  /** What is on hand at the start of `day`, at what value, and the unit a sale of the day posts at. */
+  stateAt(path: string, day: string): GroupCostState | undefined {
+    const s = this.stateOf(path, day)
+    if (!s) return undefined
+    const unitCost = unitOf(s)
+    return { quantity: s.quantity, value: s.value, ...(unitCost !== undefined ? { unitCost } : {}) }
   }
 }

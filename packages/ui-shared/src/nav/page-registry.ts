@@ -103,6 +103,7 @@ export const PAGE_REGISTRY: PageDef[] = [
   page('accounting', '/accounts', 'nav.accounts', 'mdi-chart-bar'),
   page('accounting', '/analytics', 'nav.analytics', 'mdi-file-tree-outline'),
   page('accounting', '/product-groups', 'nav.productGroups', 'mdi-tag-multiple-outline'),
+  page('accounting', '/group-costs', 'nav.groupCosts', 'mdi-scale-balance'),
   page('accounting', '/journal-entries', 'nav.journalEntries', 'mdi-book-open-variant'),
   page('accounting', '/general-ledger', 'nav.generalLedger', 'mdi-book-multiple'),
   page('accounting', '/financial-statements', 'nav.financialStatements', 'mdi-file-chart'),
