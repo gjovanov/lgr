@@ -186,6 +186,8 @@ test('F4 and "Show all": three ticked articles become three lines with one stock
   // In the order ticked.
   expect(await lineRows(page).evaluateAll((els: Element[]) => els.map((e) => e.getAttribute('data-product')))).toEqual([fx.ids[2], fx.ids[0], fx.ids[1]])
   await expect(entry(page).getByTestId('count-entry-note')).toHaveText('3 articles added')
+  // The cursor goes to the first article added, as after one pick.
+  await expect(qtyOf(page, fx.ids[2])).toBeFocused()
   const ours = stockCalls.filter((u) => fx.ids.slice(0, 3).some((id) => u.includes(id)))
   expect(ours, 'one stock request for the three').toHaveLength(1)
   for (const id of fx.ids.slice(0, 3)) expect(ours[0]).toContain(id)

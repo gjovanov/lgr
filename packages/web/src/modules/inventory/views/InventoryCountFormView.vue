@@ -369,8 +369,10 @@ async function revealLine(productId: string) {
   setTimeout(() => {
     const active = document.activeElement
     const entry = linesRef.value?.querySelector('[data-testid="count-entry"]')
-    if (active && active !== document.body && !entry?.contains(active)) return
-    void focusLine(productId)
+    // Where the pick left it: nowhere (the pick's field is replaced by a fresh one), or the entry line's Details
+    // button. A cursor in the fresh entry field was put there since, by a person already finding the next article.
+    const untouched = !active || active === document.body || (!!entry?.contains(active) && active.tagName !== 'INPUT')
+    if (untouched) void focusLine(productId)
   }, 200)
 }
 
