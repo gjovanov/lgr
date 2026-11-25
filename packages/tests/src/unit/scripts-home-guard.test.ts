@@ -31,6 +31,7 @@ const READ_ONLY: Record<string, string> = {
   'compare-sales-register.ts': 'FR-25 R3\'s gate: a books org\'s filed sales rows against the rows derived from its branches\' documents, counts only: writes nothing',
   'compare-books-shadow.ts': 'FR-25 R3, slice 5: a store\'s months, the books against the shadow ledger, counts only: writes nothing',
   'pair-purchases.ts': 'FR-25 R4, slice 1: a filed month\'s purchase register against LGR\'s bills, counts only, no --execute: writes nothing',
+  'pair-purchase-receipts.ts': 'FR-25 R4, slice 2: a filed month\'s purchase register against the stores\' goods receipts, counts only, no --execute: writes nothing',
   'index-usage.ts':'FR-30.5: reads `$indexStats` and the index sizes, counters only: writes nothing',
 }
 
