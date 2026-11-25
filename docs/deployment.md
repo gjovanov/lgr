@@ -180,4 +180,19 @@ The application uses **Pino** for structured logging:
 
 Set the `LOG_LEVEL` environment variable to override.
 
+### A line per request (`LGR_LOG_REQUESTS`)
+
+Off by default. `LGR_LOG_REQUESTS=1` (or `true`) makes the API write one `info` line per request
+(`packages/api/src/lib/request-log.ts`, #785), for counting requests and their time per route:
+
+```json
+{"level":30,"time":1764049200000,"method":"GET","route":"/api/org/:orgId/invoicing/invoices/:id","status":200,"ms":4.2,"msg":"request"}
+```
+
+- `route` is the matched route's pattern, never the URL: no id or query string reaches the log.
+- A request no route matched (a 404, the web app's shell, a static file) logs `"route":"(unmatched)"`.
+- A request an `onRequest` hook answers itself (an org address's tunnel, the front's refusals) logs nothing.
+- Read once at start. Off, no hook is registered, so requests pay nothing for it.
+- On a master, add the line to `config/api.env`; the supervisor passes it to the API at its next start.
+
 See [Architecture](architecture.md) for the system overview and [Testing](testing.md) for test environment setup.

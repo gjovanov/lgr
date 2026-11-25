@@ -38,6 +38,7 @@ use std::collections::VecDeque;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -77,6 +78,34 @@ pub trait PageSource: Send + Sync {
         Box::pin(async { Err(anyhow!("this source sends no files")) })
     }
 }
+
+/// The pump's running totals over this supervisor's life, across bulk sessions (#785): pages the API
+/// built, pages global acknowledged, and pages built again because the one before them got no
+/// acknowledgement (no answer in time, refused, global's error). Counts only, so relaxed atomics: no
+/// lock on the pump's path. The supervisor's status carries them as `replicationPump`.
+#[derive(Debug, Default)]
+pub struct PageTotals {
+    built: AtomicU64,
+    acked: AtomicU64,
+    resent: AtomicU64,
+}
+
+impl PageTotals {
+    pub const fn new() -> Self {
+        Self { built: AtomicU64::new(0), acked: AtomicU64::new(0), resent: AtomicU64::new(0) }
+    }
+
+    pub fn json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "pagesBuilt": self.built.load(Ordering::Relaxed),
+            "pagesAcked": self.acked.load(Ordering::Relaxed),
+            "pagesResent": self.resent.load(Ordering::Relaxed),
+        })
+    }
+}
+
+/// This process's totals, which every session's pump adds to.
+pub static PAGES: PageTotals = PageTotals::new();
 
 /// A frame for the bulk socket: a page or a chunk (binary), or a word to global (text).
 #[derive(Debug, PartialEq, Eq)]
@@ -325,6 +354,8 @@ struct Org {
     sent: u64,
     acked_at: Option<String>,
     last_refusal: Option<String>,
+    /// The last page went unacknowledged: the next one built counts as resent (#785).
+    redo: bool,
     files: Files,
 }
 
@@ -363,7 +394,7 @@ fn report(orgs: &[Org], status: &Status) {
 }
 
 /// What global answered: the watermarks move, the files go on, or the org waits.
-async fn answer(orgs: &mut [Org], v: &serde_json::Value, source: &dyn PageSource, t: PumpTiming) {
+async fn answer(orgs: &mut [Org], v: &serde_json::Value, source: &dyn PageSource, t: PumpTiming, totals: &PageTotals) {
     let Some(id) = v["orgId"].as_str() else {
         tracing::warn!(t = v["t"].as_str().unwrap_or(""), detail = v["detail"].as_str().unwrap_or(""), "global could not read a frame");
         return;
@@ -379,6 +410,7 @@ async fn answer(orgs: &mut [Org], v: &serde_json::Value, source: &dyn PageSource
             o.in_flight = None;
             o.next = now;
             o.acked_at = Some(now_iso());
+            totals.acked.fetch_add(1, Ordering::Relaxed);
             o.last_refusal = None;
             // New rows may name files; and files waiting get the next turn.
             o.files.dirty = true;
@@ -392,6 +424,7 @@ async fn answer(orgs: &mut [Org], v: &serde_json::Value, source: &dyn PageSource
         }
         Some("page-refused") => {
             o.in_flight = None;
+            o.redo = true;
             let reason = v["reason"].as_str().unwrap_or("refused");
             o.last_refusal = Some(reason.to_string());
             match reason {
@@ -412,6 +445,7 @@ async fn answer(orgs: &mut [Org], v: &serde_json::Value, source: &dyn PageSource
         }
         Some("page-error") => {
             o.in_flight = None;
+            o.redo = true;
             o.next = now + t.retry;
         }
         Some("blob-want") => {
@@ -553,7 +587,13 @@ async fn files_step(o: &mut Org, source: &dyn PageSource, out: &mpsc::Sender<Out
 }
 
 /// Send the orgs' pages and files until the socket ends: `out` is the session's, `answers` global's frames.
-pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Sender<Out>, mut answers: mpsc::UnboundedReceiver<serde_json::Value>, status: Status, t: PumpTiming, pacer: Option<Arc<crate::pacing::Pacer>>) {
+pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Sender<Out>, answers: mpsc::UnboundedReceiver<serde_json::Value>, status: Status, t: PumpTiming, pacer: Option<Arc<crate::pacing::Pacer>>) {
+    pump_into(starts, source, out, answers, status, t, pacer, &PAGES).await
+}
+
+/// The pump, adding to `totals` (a test gives each pump its own).
+#[allow(clippy::too_many_arguments)]
+async fn pump_into(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Sender<Out>, mut answers: mpsc::UnboundedReceiver<serde_json::Value>, status: Status, t: PumpTiming, pacer: Option<Arc<crate::pacing::Pacer>>, totals: &'static PageTotals) {
     let now = Instant::now();
     let mut orgs: Vec<Org> = starts
         .into_iter()
@@ -567,6 +607,7 @@ pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Se
             sent: 0,
             acked_at: None,
             last_refusal: None,
+            redo: false,
             files: Files { on: s.files, ..Files::default() },
         })
         .collect();
@@ -574,7 +615,7 @@ pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Se
         // Global's answers move the watermarks before anything is built from them.
         loop {
             match answers.try_recv() {
-                Ok(v) => answer(&mut orgs, &v, &*source, t).await,
+                Ok(v) => answer(&mut orgs, &v, &*source, t, totals).await,
                 Err(mpsc::error::TryRecvError::Empty) => break,
                 Err(mpsc::error::TryRecvError::Disconnected) => return,
             }
@@ -584,7 +625,10 @@ pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Se
             if let Some(f) = &o.in_flight {
                 if now.duration_since(f.sent()) >= t.ack_timeout {
                     match f {
-                        InFlight::Page { to_seq, .. } => tracing::warn!(org = %o.id, to_seq, "no answer for a page within {} s; it is built again", t.ack_timeout.as_secs()),
+                        InFlight::Page { to_seq, .. } => {
+                            tracing::warn!(org = %o.id, to_seq, "no answer for a page within {} s; it is built again", t.ack_timeout.as_secs());
+                            o.redo = true;
+                        }
                         InFlight::Sync { .. } => tracing::warn!(org = %o.id, "global did not say which files it lacks within {} s; it is asked again", t.ack_timeout.as_secs()),
                         InFlight::Chunk { sha, .. } => tracing::warn!(org = %o.id, sha256 = %sha, "no answer for a chunk within {} s; it is sent again from where global stands", t.ack_timeout.as_secs()),
                     }
@@ -607,6 +651,10 @@ pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Se
             let (id, after, hash) = (orgs[i].id.clone(), orgs[i].after, orgs[i].hash.clone());
             match source.page(&id, after, &hash).await {
                 Ok(Built::Page { bytes, to_seq }) => {
+                    totals.built.fetch_add(1, Ordering::Relaxed);
+                    if std::mem::take(&mut orgs[i].redo) {
+                        totals.resent.fetch_add(1, Ordering::Relaxed);
+                    }
                     // FR-20.52: the line's share, spaced out; the socket's loop never waits on it.
                     if let Some(p) = &pacer {
                         p.take(bytes.len()).await;
@@ -619,6 +667,8 @@ pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Se
                 }
                 // Caught up: the files' turn, if they have one.
                 Ok(Built::Empty) => {
+                    // Nothing was waiting to go again: the next page is new.
+                    orgs[i].redo = false;
                     if orgs[i].files.due(Instant::now(), t) {
                         if !files_step(&mut orgs[i], &*source, &out, t, pacer.as_deref()).await {
                             return;
@@ -659,7 +709,7 @@ pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Se
             Some(at) => {
                 tokio::select! {
                     a = answers.recv() => match a {
-                        Some(v) => answer(&mut orgs, &v, &*source, t).await,
+                        Some(v) => answer(&mut orgs, &v, &*source, t, totals).await,
                         None => return,
                     },
                     _ = tokio::time::sleep_until(at.into()) => {}
@@ -667,7 +717,7 @@ pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Se
             }
             // Every org stopped: only the end of the socket matters now.
             None => match answers.recv().await {
-                Some(v) => answer(&mut orgs, &v, &*source, t).await,
+                Some(v) => answer(&mut orgs, &v, &*source, t, totals).await,
                 None => return,
             },
         }
@@ -749,14 +799,23 @@ mod tests {
         answers: mpsc::UnboundedSender<serde_json::Value>,
         task: tokio::task::JoinHandle<()>,
         status: Status,
+        totals: &'static PageTotals,
+    }
+
+    /// This pump's totals: built, acknowledged, resent.
+    fn totals(h: &Harness) -> (u64, u64, u64) {
+        let v = h.totals.json();
+        (v["pagesBuilt"].as_u64().unwrap(), v["pagesAcked"].as_u64().unwrap(), v["pagesResent"].as_u64().unwrap())
     }
 
     fn start(starts: Vec<Start>, script: Arc<Script>) -> Harness {
         let (out_tx, out) = mpsc::channel(1);
         let (answers, ans_rx) = mpsc::unbounded_channel();
         let status = status();
-        let task = tokio::spawn(pump(starts, script, out_tx, ans_rx, status.clone(), quick(), None));
-        Harness { out, answers, task, status }
+        // Each test's own totals: the tests run side by side, and the process's would add them up.
+        let totals: &'static PageTotals = Box::leak(Box::new(PageTotals::new()));
+        let task = tokio::spawn(pump_into(starts, script, out_tx, ans_rx, status.clone(), quick(), None, totals));
+        Harness { out, answers, task, status, totals }
     }
 
     async fn frame(h: &mut Harness) -> Out {
@@ -826,6 +885,8 @@ mod tests {
         assert_eq!(asked[..2], [("a".into(), 0, String::new()), ("a".into(), 5, "h5".into())]);
         let s = h.status.lock().unwrap()["bulk"]["replication"]["a"].clone();
         assert_eq!((s["watermark"].as_u64(), s["inFlight"].as_u64(), s["sent"].as_u64()), (Some(5), Some(9), Some(2)), "{s}");
+        // #785: two built, one acknowledged, nothing built again.
+        assert_eq!(totals(&h), (2, 1, 0));
         h.task.abort();
     }
 
@@ -849,6 +910,8 @@ mod tests {
         h.answers.send(serde_json::json!({ "t": "page-refused", "orgId": "a", "reason": "behind", "watermark": 20, "chainHash": "h20" })).unwrap();
         assert_eq!(sent(&mut h).await, b"new");
         assert_eq!(script.asked.lock().unwrap()[1], ("a".into(), 20, "h20".into()));
+        // A refused page's successor counts as resent.
+        assert_eq!(totals(&h), (2, 0, 1));
         h.task.abort();
     }
 
@@ -882,6 +945,8 @@ mod tests {
         // No answer for p2: after the timeout it is built again, from the last acknowledged point.
         assert_eq!(sent(&mut h).await, b"p2-again");
         assert_eq!(script.asked.lock().unwrap()[2], ("a".into(), 5, "h5".into()));
+        // #785: p2 again is the one resent; the documents global asked for are no page.
+        assert_eq!(totals(&h), (3, 1, 1));
         h.task.abort();
     }
 
