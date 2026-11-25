@@ -2864,6 +2864,19 @@
       "notCounted": "Not counted yet",
       "difference": "With a difference"
     },
+    "countLine": {
+      "lineNo": "#",
+      "needWarehouse": "Choose the warehouse first: the system quantity is read from it",
+      "notStocked": "not stocked here",
+      "already": "Already on the count: line {n}",
+      "added": "{n} articles added",
+      "addedSomeThere": "{n} articles added; {m} were already on the count",
+      "allThere": "All {m} are already on the count",
+      "loadedMissing": "{n} levels added; the lines already on the count keep what was typed",
+      "loadedNone": "Every level of the warehouse is already on the count",
+      "warehouseLocked": "Locked while the count has lines: remove them to change the warehouse",
+      "warehouseLockedSaved": "The saved count still has lines: save it without them to change the warehouse"
+    },
     "systemQty": "System Qty",
     "countedQty": "Counted Qty",
     "variance": "Variance",

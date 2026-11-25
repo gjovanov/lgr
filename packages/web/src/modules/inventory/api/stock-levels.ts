@@ -39,3 +39,22 @@ export async function listStockLevels(params: StockLevelListParams): Promise<Lis
   const { data } = await httpClient.get(orgPath(BASE), { params })
   return data
 }
+
+/** One article's level in one warehouse, as `GET /by-products` answers it. */
+export interface StockByProductRow {
+  warehouseId: string
+  warehouseName: string
+  quantity: number
+  availableQuantity: number
+}
+
+/**
+ * `GET /by-products`: the levels of these articles (in this warehouse, when one is named), keyed by the article. An
+ * article with no level is absent from `stock`. One call for a set of articles, never one per article.
+ */
+export async function stockByProducts(productIds: string[], warehouseId?: string): Promise<{ stock: Record<string, StockByProductRow[]> }> {
+  const params: Record<string, string> = { productIds: productIds.join(',') }
+  if (warehouseId) params.warehouseId = warehouseId
+  const { data } = await httpClient.get(orgPath(`${BASE}/by-products`), { params })
+  return data
+}
