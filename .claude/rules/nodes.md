@@ -168,6 +168,12 @@ everything at once let `mongod` go first, under the API's last writes.
   guards only switches made after it is the last known good version: the lanes proved #369 with a
   test-only 0.1.5 over 0.1.4.
 
+- ⚠ **Every call to global's `/api/node/v1` carries the node's token, a download too.** `NodeAuth`
+  runs before every route there, and only `public-routes.ts` lets one out. Until #949 the helper
+  asked for the offer with the token and downloaded the bundle with none: global answered 401, and
+  no release up to server-v0.1.12 could take global's offer. The linked lane's `version-skew` found it.
+  `Https::download` takes the bearer as an argument, so a new caller has to choose.
+
 - It reads `api.ok` and `api.uptimeSecs` from the API's `/status` over its control socket, which
   exists only once the API serves. It never reads whether the API child's process runs.
 
