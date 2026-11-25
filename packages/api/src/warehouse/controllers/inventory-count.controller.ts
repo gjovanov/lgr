@@ -10,6 +10,7 @@ import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { clientCreate, clientUpdate } from 'services/biz/server-owned'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { priceCountLines } from 'services/biz/inventory-count-pricing'
+import { articleRepeatedRefusal, warehouseLockedRefusal } from 'services/biz/inventory-count-lines'
 import { grantOf } from 'services/biz/access/evaluate'
 import { seesCosts } from 'config/access'
 
@@ -116,6 +117,9 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const data = clientCreate('InventoryCount', body, { orgId: params.orgId, createdBy: user.id, status: 'in_progress' })
+    // FR-33.13: one line per article.
+    const repeated = await articleRepeatedRefusal(params.orgId, data.lines)
+    if (repeated) return status(422, repeated)
     // FR-27.11.C.4: priced here, from the stock level's average cost; the body's figure is ignored.
     const lines = await priceCountLines(params.orgId, data.warehouseId, data.lines)
     // Last, so a body that is refused above takes no number.
@@ -141,6 +145,13 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
     if (heldNow(existing)) return status(409, countBusy(existing))
     // FR-27.11.C.4: priced here, from the stock level's average cost; the body's figure is ignored.
     const update: any = clientUpdate('InventoryCount', body, existing)
+    // FR-33.14: a count with lines keeps its warehouse. FR-33.13: one line per article.
+    const locked = warehouseLockedRefusal(existing, update)
+    if (locked) return status(422, locked)
+    if (Array.isArray(update.lines)) {
+      const repeated = await articleRepeatedRefusal(params.orgId, update.lines)
+      if (repeated) return status(422, repeated)
+    }
     if (Array.isArray(update.lines)) update.lines = await priceCountLines(params.orgId, update.warehouseId ?? (existing as any).warehouseId, update.lines)
     const item = await r.inventoryCounts.updateInOrg(params.id, params.orgId, update, openCount(), { validate: true })
     if (!item) {
@@ -208,6 +219,9 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
       // The count as it stands under the hold.
       const doc = await r.inventoryCounts.findOne({ id, orgId } as any)
       if (!doc) return status(404, { message: 'Inventory count not found' })
+      // FR-33.13: a count saved before the rule, or past the routes, is refused before anything is booked.
+      const repeated = await articleRepeatedRefusal(orgId, doc.lines)
+      if (repeated) return status(422, repeated)
 
       // FR-27.11.C.4: priced again now, at the average cost the adjustment is booked against.
       const priced = await priceCountLines(orgId, doc.warehouseId, doc.lines as any[])
