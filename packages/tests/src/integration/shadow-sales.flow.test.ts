@@ -182,7 +182,7 @@ beforeEach(async () => {
 describe('posting a store\'s sales documents into the shadow ledger', () => {
   it('a dry run posts nothing, says why a document cannot post, and checks the rest against the books', async () => {
     const r = await postShadowSales(world.store.id, MARCH_RUN)
-    expect(r.rules).toEqual({ stored: 12, active: 12, fromSeed: false })
+    expect(r.rules).toEqual({ stored: 15, active: 15, fromSeed: false })
     expect([r.documents, r.posts, r.refused.product_unmapped, r.voided]).toEqual([4, 3, 1, 0])
     expect(r.actions).toEqual({ post: 3, repost: 0, reverse: 0, post_and_reverse: 0, none: 1 })
     expect(r.vatRows).toEqual({ create: 3, update: 0, remove: 0, unchanged: 0, frozen: 0 })
@@ -306,9 +306,9 @@ describe('the posting rules of a books org', () => {
   it('a second seed adds nothing, and a rule the accountant changed stays as it was', async () => {
     await PostingRule.updateOne({ orgId: world.store.id, code: 'sales.invoice.cash' }, { $set: { isActive: false, source: 'accountant' } })
     await PostingRule.deleteOne({ orgId: world.store.id, code: 'sales.invoice.vat' })
-    expect(await seedPostingRules(world.store.id)).toEqual({ rules: 12, create: 1, kept: 11 })
-    expect(await seedPostingRules(world.store.id, { execute: true })).toEqual({ rules: 12, create: 1, kept: 11, written: 1 })
-    expect(await seedPostingRules(world.store.id, { execute: true })).toEqual({ rules: 12, create: 0, kept: 12, written: 0 })
+    expect(await seedPostingRules(world.store.id)).toEqual({ rules: 15, create: 1, kept: 14 })
+    expect(await seedPostingRules(world.store.id, { execute: true })).toEqual({ rules: 15, create: 1, kept: 14, written: 1 })
+    expect(await seedPostingRules(world.store.id, { execute: true })).toEqual({ rules: 15, create: 0, kept: 15, written: 0 })
     expect(await PostingRule.findOne({ orgId: world.store.id, code: 'sales.invoice.cash' }).lean()).toMatchObject({ isActive: false, source: 'accountant' })
   })
 })
@@ -335,9 +335,9 @@ describe('the seed script', () => {
     })
     const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
     expect([code, code ? out + err : '']).toEqual([0, ''])
-    expect(out).toMatch(/\s11 {2}the org holds already/)
+    expect(out).toMatch(/\s14 {2}the org holds already/)
     expect(out).toMatch(/\s1 {2}to add/)
-    expect(await PostingRule.countDocuments({ orgId: world.store.id })).toBe(11)
+    expect(await PostingRule.countDocuments({ orgId: world.store.id })).toBe(14)
   })
 })
 

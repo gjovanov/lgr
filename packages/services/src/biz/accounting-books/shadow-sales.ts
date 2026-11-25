@@ -11,6 +11,8 @@
  *   services          D411[partner] K703          the net of the service lines
  *   the document      D411[partner] K4532         its VAT
  *   paid at issue     D501        K411[partner]   what was paid in cash at the counter as it was issued
+ *   paid by card      D501        K411[partner]   what was paid by card at the counter as it was issued: the books
+ *                                                 book a card sale on the cash account too (`ПЛАЩАНЕ` `1`)
  *
  * ⚠ Three things that read as mistakes and are not (§1.4): cost of sales is a debit on REVENUE (`D702 K304`); the
  * customer's account is hit even for a sale paid in cash (`D411 … K702`, then `D501 K411`); and a credit note books the
@@ -184,15 +186,20 @@ const cleanQty = (q: number) => Math.round(q * 1e6) / 1e6 || 0
 const isoDay = (d: Date) => d.toISOString().slice(0, 10)
 
 /**
- * The payments that are the document's own settlement at the counter: the settlement rule's (`cash_on_issue`) and a
- * printed receipt's or storno's (FR-23), in cash, on the document's business day. A payment a person records, or one
- * of another day, is a cash receipt of its own in the books, and no part of this entry.
+ * The payments that are the document's own settlement at the counter: the settlement rule's (`cash_on_issue`,
+ * `card_on_issue`) and a printed receipt's or storno's (FR-23), on the document's business day, in the method of the
+ * rule that books them. A payment a person records, or one of another day, is a receipt of its own in the books, and no
+ * part of this entry.
  */
-export const PAID_AT_ISSUE_ORIGINS: ReadonlySet<string> = new Set(['cash_on_issue', 'payment_receipt', 'payment_storno'])
+export const PAID_AT_ISSUE_ORIGINS: ReadonlySet<string> = new Set(['cash_on_issue', 'card_on_issue', 'payment_receipt', 'payment_storno'])
 
-type Scope = 'goods' | 'service' | 'document' | 'cash'
+/** The methods a rule's `match.paymentMethod` may name: each books what was paid that way at the counter. */
+const PAID_SCOPES = ['cash', 'card'] as const
+type PaidScope = (typeof PAID_SCOPES)[number]
+type Scope = 'goods' | 'service' | 'document' | PaidScope
 type Slot = `${Scope}.${'net' | 'vat' | 'cost' | 'paid'}`
-const ALLOWED: Record<Scope, readonly string[]> = { goods: ['cost', 'net'], service: ['net'], document: ['vat'], cash: ['paid'] }
+const ALLOWED: Record<Scope, readonly string[]> = { goods: ['cost', 'net'], service: ['net'], document: ['vat'], cash: ['paid'], card: ['paid'] }
+const isPaidScope = (method: string): method is PaidScope => (PAID_SCOPES as readonly string[]).includes(method)
 
 const refuse = (refused: ShadowRefusal, detail?: string): ShadowOutcome => ({ refused, ...(detail !== undefined ? { detail } : {}) })
 
@@ -201,7 +208,7 @@ function scopeOf(rule: PostingRuleData): Scope | { unsupported: string } {
   const { lineKind, paymentMethod } = rule.match
   if (lineKind && paymentMethod) return { unsupported: rule.code }
   if (lineKind) return lineKind === 'goods' || lineKind === 'service' ? lineKind : { unsupported: rule.code }
-  if (paymentMethod) return paymentMethod === 'cash' ? 'cash' : { unsupported: rule.code }
+  if (paymentMethod) return isPaidScope(paymentMethod) ? paymentMethod : { unsupported: rule.code }
   return 'document'
 }
 
@@ -240,13 +247,16 @@ export function postShadowSale(doc: ShadowDocument, input: PostingInput): Shadow
   const base = cents(doc.total) - vat
   const servicesNet = !services.length ? 0 : !goods.length ? base : cents(roundCents(services.reduce((s, l) => s + lineAmounts(l, true).taxable, 0)))
   const goodsNet = base - servicesNet
-  const paid = cents(roundCents(Math.abs((doc.payments ?? [])
+  const paidBy = (method: PaidScope) => cents(roundCents(Math.abs((doc.payments ?? [])
     // ⚠ A payment with no date is none of the day's: `Intl` formats `undefined` as now.
-    .filter(p => p.method === 'cash' && !!p.origin && PAID_AT_ISSUE_ORIGINS.has(p.origin) && p.date instanceof Date && +sofiaDay(p.date) === +day)
+    .filter(p => p.method === method && !!p.origin && PAID_AT_ISSUE_ORIGINS.has(p.origin) && p.date instanceof Date && +sofiaDay(p.date) === +day)
     .reduce((s, p) => s + (Number(p.amount) || 0), 0))))
+  const paid: Record<PaidScope, number> = { cash: paidBy('cash'), card: paidBy('card') }
 
   // The rules this document applies, by what they carry.
-  const present: Record<Scope, boolean> = { goods: goods.length > 0, service: services.length > 0, document: true, cash: paid !== 0 }
+  const present: Record<Scope, boolean> = {
+    goods: goods.length > 0, service: services.length > 0, document: true, cash: paid.cash !== 0, card: paid.card !== 0,
+  }
   const applying = input.rules.filter(r => r.isActive && r.match.docKind === doc.type && r.match.direction === 'outgoing')
   const bySlot = new Map<Slot, { rule: PostingRuleData; op: PostingRuleData['operations'][number] }[]>()
   for (const rule of applying) {
@@ -268,7 +278,7 @@ export function postShadowSale(doc: ShadowDocument, input: PostingInput): Shadow
     ...(goods.length ? ['goods.cost', 'goods.net'] as Slot[] : []),
     ...(services.length ? ['service.net'] as Slot[] : []),
     ...(vat ? ['document.vat'] as Slot[] : []),
-    ...(paid ? ['cash.paid'] as Slot[] : []),
+    ...PAID_SCOPES.filter(m => paid[m]).map(m => `${m}.paid` as Slot),
   ]
   for (const slot of needed) {
     const n = bySlot.get(slot)?.length ?? 0
@@ -317,7 +327,7 @@ export function postShadowSale(doc: ShadowDocument, input: PostingInput): Shadow
     costs.push({ groupId, quantity, amount: roundCents(quantity * unitCost), ...(g.unit ? { unit: g.unit } : {}) })
   }
 
-  // The operations, in a fixed order: the cost per group, the nets, the VAT, the cash.
+  // The operations, in a fixed order: the cost per group, the nets, the VAT, the cash, the card.
   const lines: ShadowLine[] = []
   let opNo = 0
   const analyticOf = (spec: string | undefined, groupId?: string) =>
@@ -342,7 +352,7 @@ export function postShadowSale(doc: ShadowDocument, input: PostingInput): Shadow
   if (goods.length && goodsNet) book(opOf('goods.net'), goodsNet)
   if (services.length && servicesNet) book(opOf('service.net'), servicesNet)
   if (vat) book(opOf('document.vat'), vat)
-  if (paid) book(opOf('cash.paid'), paid)
+  for (const m of PAID_SCOPES) if (paid[m]) book(opOf(`${m}.paid`), paid[m])
   if (!lines.length) return refuse('nothing_to_post')
 
   const entry: ShadowEntryDraft = {

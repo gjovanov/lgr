@@ -296,3 +296,12 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
 - **The commands.** Accounting → Group costs (or `/org/:orgId/accounting/group-costs`) in the home, then
   `scripts/post-shadow-sales.ts --org <slug> --from <the override's day> --to <day> [--execute]` for each org of the
   split; its "Cost basis" line counts the overrides applied.
+
+## A card at the counter, on the cash account (2026-11-25, FR-25 R3, slice 3)
+
+- ⚠ **A card at the counter is booked on `501`, as cash is.** The books code a document paid at the counter `1` and
+  debit `501` what was paid, whatever the means: `sales.<kind>.card` books what LGR recorded as paid by card at the
+  counter on the document's day, after the cash. It is a rule of its own, so the accountant can point it elsewhere.
+
+- **After a rule is added to the seed**, `scripts/seed-posting-rules.ts --org <slug> [--execute]` adds only the rules
+  an org lacks, and the next `post-shadow-sales.ts` over the months reposts the documents the new rule changes.

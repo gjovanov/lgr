@@ -343,3 +343,17 @@ for (`GET /accounting/group-costs/average`). FR-25 §9, "R3: the accountant's ov
   unit that is no amount), `integration/group-cost-override.flow.test.ts` (a store's sales post at the home's override
   from its day; a change and a removal repost only what they change; the routes, the audit trail, a stale page, the
   store and an org without books refused), `unit/group-costs-page.test.ts`.
+
+## A card at the counter, on the cash account (2026-11-25, FR-25 R3, slice 3)
+
+The comparison's first run over every month the shadow holds found 360 documents whose cash differed from the books.
+Read one by one, 328 were sales paid by card at the counter, which the books book exactly as cash (`ПЛАЩАНЕ` `1`,
+`D501 K411` what was paid) and the shadow did not book at all: its only paid rule took cash. The seed now holds a card
+rule per kind of document, fifteen rules, not twelve. The other 32 are cash on delivery (the books book it as paid on
+the invoice's day; question 5 of slice 3), the books' own cents, and LGR documents that record no counter payment.
+FR-25 §9, "R3: the cash place, explained".
+- ⚠ **A card at the counter is booked on `501`, as cash is.** The books code a document paid at the counter `1` and
+  debit `501` what was paid, whatever the means: `sales.<kind>.card` books what LGR recorded as paid by card at the
+  counter on the document's day, after the cash. It is a rule of its own, so the accountant can point it elsewhere.
+- **Tests:** `unit/shadow-sales.test.ts` (a card alone, a split tender, another account, the rule switched off, a
+  refund on a credit note, the seed's fifteen), `integration/shadow-sales.flow.test.ts` (the seed's counts).
