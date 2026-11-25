@@ -120,7 +120,7 @@ describe('FR-33.13 one line per article', () => {
     // Saved before the rule, or past the routes.
     const doc: any = await InventoryCount.create({
       orgId: org._id, countNumber: await nextCountNumber(orgId), warehouseId: main._id, date: new Date(), type: 'partial', status: 'in_progress',
-      lines: [line('bolt', 100, 98), line('bolt', 100, 98)], createdBy: (await User.findOne({ orgId: org._id }).lean().exec() as any)._id,
+      lines: [{ ...line('bolt', 100, 98), varianceCost: -10 }, { ...line('bolt', 100, 98), varianceCost: -10 }], createdBy: (await User.findOne({ orgId: org._id }).lean().exec() as any)._id,
     } as any)
     const r = await call('POST', `/warehouse/inventory-count/${doc._id}/complete`, {})
     expect([r.status, r.json?.code]).toEqual([422, 'count_article_repeated'])
