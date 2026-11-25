@@ -3,8 +3,9 @@
 //!
 //! FR-20 plan F.4.4: a TEST build is made only for the field lanes' throwaway global (global-eph),
 //! which signs licences with keys made for one run. Such a build also trusts the licence keys an
-//! operator names in `LGR_TEST_LICENCE_KEYS` (`config/api.env`, which the API reads too). Any other
-//! build ignores them.
+//! operator names in `LGR_TEST_LICENCE_KEYS` (`config/api.env`, which the API reads too), and the
+//! update keys its lane names in `<root>/update/test-update-keys.json` (`signatures.rs`: root's alone,
+//! never the data directory, AC 59). Any other build ignores both.
 //!
 //! ⚠ The committed file says false (a unit test of the API keeps it so), and every release path
 //! refuses a test build: `scripts/check-package.ts`, the server release workflow and

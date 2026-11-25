@@ -13,6 +13,9 @@
 //! ⚠ The key is a constant, so rotating it takes a release: ship releases signed by the old key that
 //! carry the new pin, then switch the signing key once the fleet has updated past them. The pin is
 //! checked against the committed public key (`keys/roomler-release-pubkey.asc`) by a test.
+//!
+//! A TEST build (FR-20 plan F.4.4) also takes the signing keys its field lane names beside the pin
+//! (`signatures::UpdateKeys`); any other build is given none.
 
 use anyhow::{bail, Context, Result};
 use std::io::Read;
@@ -26,10 +29,15 @@ pub const PINNED_RELEASE_SIGNING_KEY: [u8; 32] = [
     0xc0, 0x11, 0xff, 0xfa, 0x8b, 0xa6, 0xd9, 0xfa,
 ];
 
-/// Verify what `artifact` reads against the armored detached signature `asc`, with the pinned key.
-/// The error is the refusal, in words.
-pub fn verify_release_artifact(artifact: impl Read, asc: &str) -> Result<()> {
-    verify_detached(artifact, asc, &PINNED_RELEASE_SIGNING_KEY)
+/// Verify what `artifact` reads against the armored detached signature `asc`, with the pinned key,
+/// and beside it `test_keys`: the ed25519 points of the signing keys a TEST build's lane names
+/// (`signatures::UpdateKeys`), none in any other build. The error is the refusal, in words;
+/// `Ok(true)` when a test key made the signature.
+pub fn verify_release_artifact(artifact: impl Read, asc: &str, test_keys: &[[u8; 32]]) -> Result<bool> {
+    let mut keys = Vec::with_capacity(1 + test_keys.len());
+    keys.push(PINNED_RELEASE_SIGNING_KEY);
+    keys.extend_from_slice(test_keys);
+    Ok(verify_detached_any(artifact, asc, &keys)? > 0)
 }
 
 /// The armor (RFC 4880 §6.2) off, the CRC-24 checked when present: it names truncation and
@@ -178,8 +186,15 @@ fn parse_signature_packet(data: &[u8]) -> Result<SigPacket> {
     Ok(SigPacket { hash_algo, hashed_subpackets, left16, signature })
 }
 
-/// The pin-free core: tests use a throwaway key.
-fn verify_detached(mut artifact: impl Read, asc: &str, pubkey: &[u8; 32]) -> Result<()> {
+/// The pin-free core with one key: tests use a throwaway key.
+#[cfg(test)]
+fn verify_detached(artifact: impl Read, asc: &str, pubkey: &[u8; 32]) -> Result<()> {
+    verify_detached_any(artifact, asc, std::slice::from_ref(pubkey)).map(|_| ())
+}
+
+/// The artifact is read once, and the signature is checked against each of `keys` in turn: the index
+/// of the one that made it. With one key the refusal names the pinned key, as it always has.
+fn verify_detached_any(mut artifact: impl Read, asc: &str, keys: &[[u8; 32]]) -> Result<usize> {
     let sig = parse_signature_packet(&dearmor(asc)?)?;
     // RFC 4880 §5.2.4: the artifact, the packet's v4 prefix through its hashed subpackets, then
     // 0x04 0xFF and that prefix's length.
@@ -218,9 +233,13 @@ fn verify_detached(mut artifact: impl Read, asc: &str, pubkey: &[u8; 32]) -> Res
         );
     }
     // OpenPGP EdDSA signs the digest itself.
-    ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, pubkey)
-        .verify(digest, &sig.signature)
-        .map_err(|_| anyhow::anyhow!("the signature does not verify against the pinned release key: this was not signed by Roomler Release Signing"))
+    if let Some(i) = keys.iter().position(|k| ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, k).verify(digest, &sig.signature).is_ok()) {
+        return Ok(i);
+    }
+    match keys.len() {
+        1 => bail!("the signature does not verify against the pinned release key: this was not signed by Roomler Release Signing"),
+        n => bail!("the signature does not verify against the pinned release key, nor against the {} test key(s) this TEST build trusts", n - 1),
+    }
 }
 
 /// A bounds-checked cursor: a truncated or hostile `.asc` is an error, never a panic.
@@ -250,23 +269,27 @@ impl<'a> Reader<'a> {
     }
 }
 
+/// roomlerd's fixture: a throwaway ed25519 key and a message it signed (gpg 2.4.8, an isolated
+/// GNUPGHOME). Test vectors, not secrets. `signatures.rs` names the key as a TEST build's lane would.
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // roomlerd's fixture: a throwaway ed25519 key and a message it signed (gpg 2.4.8, an isolated
-    // GNUPGHOME). Test vectors, not secrets.
-    const FIXTURE_MSG: &[u8] = b"roomler pgp_verify fixture message v1\n";
-    const FIXTURE_KEY: [u8; 32] = [
+pub(crate) mod fixture {
+    pub const FIXTURE_MSG: &[u8] = b"roomler pgp_verify fixture message v1\n";
+    pub const FIXTURE_KEY: [u8; 32] = [
         0xeb, 0x45, 0x29, 0xff, 0x24, 0xe9, 0xf6, 0xb7, 0x21, 0x20, 0x7a, 0x34, 0x08, 0x01, 0xa2, 0x6b, 0xf7, 0x0f, 0xe4, 0x2d, 0xc4, 0xdf, 0x3e,
         0xd3, 0xc3, 0x19, 0x5d, 0xc1, 0xcc, 0xbe, 0xce, 0x4e,
     ];
-    const FIXTURE_ASC: &str = "-----BEGIN PGP SIGNATURE-----\n\n\
+    pub const FIXTURE_ASC: &str = "-----BEGIN PGP SIGNATURE-----\n\n\
 iHUEABYKAB0WIQR+gSR1LCoEVCK5rt+0sI1x14/rFgUCao7qAAAKCRC0sI1x14/r\n\
 Fib9AQC7rcJIbBRX9OLFsijHeAtLA78lEFbZECl0rBM3Ui3ECAEAzAZhKfTmb0nJ\n\
 hV/0cAHGFizJ3Gl+qz5YZ4IEbnnXtgs=\n\
 =wJg0\n\
 -----END PGP SIGNATURE-----\n";
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fixture::*;
+    use super::*;
 
     #[test]
     fn the_fixture_verifies_read_in_chunks() {
@@ -303,6 +326,23 @@ hV/0cAHGFizJ3Gl+qz5YZ4IEbnnXtgs=\n\
     fn another_key_is_refused() {
         let err = verify_detached(FIXTURE_MSG, FIXTURE_ASC, &PINNED_RELEASE_SIGNING_KEY).unwrap_err();
         assert!(err.to_string().contains("pinned release key"), "{err}");
+        // With no test keys (any build but a TEST one) the release check is the pinned key alone.
+        let err = verify_release_artifact(FIXTURE_MSG, FIXTURE_ASC, &[]).unwrap_err();
+        assert_eq!(err.to_string(), "the signature does not verify against the pinned release key: this was not signed by Roomler Release Signing");
+    }
+
+    /// A TEST build's lane names its own signing key beside the pin: what it signed verifies, and says a
+    /// test key made it; a lane key that did not sign it changes nothing.
+    #[test]
+    fn a_test_key_beside_the_pin_verifies_what_it_signed() {
+        assert!(verify_release_artifact(FIXTURE_MSG, FIXTURE_ASC, &[FIXTURE_KEY]).unwrap());
+        assert!(verify_release_artifact(FIXTURE_MSG, FIXTURE_ASC, &[[7u8; 32], FIXTURE_KEY]).unwrap());
+        let err = verify_release_artifact(FIXTURE_MSG, FIXTURE_ASC, &[[7u8; 32]]).unwrap_err();
+        assert!(err.to_string().contains("nor against the 1 test key(s)"), "{err}");
+        // A test key never makes a changed artifact verify.
+        let mut msg = FIXTURE_MSG.to_vec();
+        msg[0] ^= 1;
+        assert!(verify_release_artifact(msg.as_slice(), FIXTURE_ASC, &[FIXTURE_KEY]).unwrap_err().to_string().contains("other bytes"));
     }
 
     #[test]
@@ -358,10 +398,10 @@ hV/0cAHGFizJ3Gl+qz5YZ4IEbnnXtgs=\n\
         let path = std::env::var("LGR_TEST_ASC_ARTIFACT").unwrap();
         let bytes = std::fs::read(&path).unwrap();
         let asc = std::fs::read_to_string(format!("{path}.asc")).unwrap();
-        verify_release_artifact(bytes.as_slice(), &asc).unwrap();
+        assert!(!verify_release_artifact(bytes.as_slice(), &asc, &[]).unwrap(), "the pinned key made it");
         let mut flipped = bytes;
         let mid = flipped.len() / 2;
         flipped[mid] ^= 1;
-        assert!(verify_release_artifact(flipped.as_slice(), &asc).is_err());
+        assert!(verify_release_artifact(flipped.as_slice(), &asc, &[]).is_err());
     }
 }
