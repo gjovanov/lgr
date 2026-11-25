@@ -1,6 +1,7 @@
 import { Elysia } from 'elysia'
 import { corsPlugin } from './cors.js'
 import { isolationHeaders } from './isolation-headers.js'
+import { requestLog } from './lib/request-log.js'
 import { config, nodeRole } from 'config'
 import { connectDB } from 'db/connection'
 import { initServiceContext } from 'services/context'
@@ -81,6 +82,9 @@ if (oneSpa) logger.info({ buildId }, 'Serving the web app (FR-24)')
 else logger.info(`${webDir}/index.html not found: no web app is served`)
 
 const app = new Elysia()
+  // #785: a line per request (method, route pattern, status, ms) with LGR_LOG_REQUESTS=1; off, no hook at all.
+  // First, so its clock starts before the other request hooks.
+  .use(requestLog())
   // FR-20.72–20.74 (P3-4b): an org's address, `<label>.lgrai.app`, is its server's: tunnelled before
   // anything of lgrai.app's own app, headers or cookies runs. Global only; nothing for other hosts.
   .onRequest(tunnelRouter())
