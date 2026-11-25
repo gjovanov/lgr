@@ -1140,8 +1140,19 @@ causes. Counts only; the rows stayed with the person who ran it.
 - **Done on production the same day, on the owner's go.** The card's rule seeded in both stores and the card sales
   reposted (331, and 1 document posted that had become postable that day); the 14 invoices of that import run settled
   (`scripts/settle-cash-invoices.ts`); the 2 documents set to bank transfer, as PlusMinus holds them, their cash
-  payment withdrawn by the settlement rule. Every dry run after a write planned nothing. Next: the cash on delivery
-  rule's seed and repost. The 5 credit notes wait for a decision.
+  payment withdrawn by the settlement rule. Every dry run after a write planned nothing. The 5 credit notes wait for a
+  decision.
+- **The cash on delivery rule, the same evening (#957).** Seeded in both stores (three rules each), and the documents
+  it changes reposted with the 5 settled invoices and the 2 documents set to bank transfer: 21 reposts, as the dry run
+  planned, and nothing planned after it.
+- **After it, 23 compared documents differ on cash, and each has a known cause:**
+  - 18 by a cent or two. These are the books' own amounts: the 9 of the table, and 9 card sales whose books' total is
+    as far from the printed document.
+  - The 3 credit notes.
+  - 2 that the books code bank (`2`): the one card sale the books do not book on `501`, and one наложен платеж. Both
+    were equal before the rules that book them on `501`.
+
+  Revenue and VAT are as they were.
 
 ### R3: the accountant's override of a group's average, as built
 
