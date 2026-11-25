@@ -19,6 +19,7 @@ paths:
   - "scripts/*posting-rules*"
   - "scripts/*shadow*"
   - "scripts/*purchases*"
+  - "scripts/*purchase-receipts*"
 ---
 
 # Rules and traps: Accounting, payroll and sealed personal data
@@ -310,3 +311,17 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
 - **After a rule is added to the seed**, `scripts/seed-posting-rules.ts --org <slug> [--execute]` adds only the rules
   an org lacks, then the next `post-shadow-sales.ts` over the months reposts the documents the new rule changes. Seed
   first: the run's dry run plans the same before and after, the real run refuses before.
+
+## A filed month of purchases against the stores' goods receipts (2026-11-25, FR-25 R4, slice 2)
+
+- ⚠ **A receipt's `reference` is the store program's number, never the supplier's.** Pair a receipt on partner, day and
+  amount; a receipt has no field for the supplier's invoice number.
+
+- ⚠ **A receipt is net, and worth its lines' unit cost.** Compare it with a row's base (`03-31` + `03-32`) and count a
+  match to the gross apart. Only a receipt booked by the API import carries the supplier's prices; a PDF receipt of an
+  existing article and the negative half of a разписка are at average cost.
+
+- ⚠ **A receipt whose `invoiceId` names an outgoing document is a sale taken back**, never a purchase: leave it out.
+
+- **The command.** `scripts/pair-purchase-receipts.ts --org <slug> --period YYYYMM [--details]`: read-only, no
+  `--execute`, counts only; `--details` names rows and movements, for the person running it.

@@ -1220,6 +1220,52 @@ exactly, for the person running it, and its help says that output stays out of t
 
 Not yet run on production. It runs on the build host, read-only, by a person, and only its counts leave it.
 
+**Run on production for 202610 (2026-11-24):** 0 of 310 rows paired (276 invoices, 12 credit notes, 22 protocols).
+LGR holds almost no incoming bills: the goods are in the stores' goods receipts. The owner chose option (c), slice 2.
+
+### R4, slice 2: the rows paired with goods receipts, as built
+
+Option (c), the owner's method (#471): one filed month's purchase register against the goods receipts of the home and
+every store of the split, read-only. Built: `services/biz/accounting-books/purchases/` `receipt-pairing.ts` (the pairing,
+import-pure) and `receipt-pairing.service.ts` (the month, read-only), and `scripts/pair-purchase-receipts.ts --org <slug>
+--period YYYYMM [--details]`. No `--execute`, nothing written, counts only. Slice 1's files are imported, not changed.
+
+- **Partner, day and amount, never the number.** A receipt's `reference` (the `stokrazp:` marker of its notes) is the
+  store program's own number, never the supplier's invoice number, and a receipt has no field for one.
+- **What is compared.** A row's partner is `partnerVat` (slice 1's `partnerKey`), its day `docDate`, its type
+  `docTypeCode`, its base `03-31` + `03-32` and its gross the base + `03-41` + `03-42` (+ `03-30`, `03-44`). A receipt's
+  partner is its contact's `vatNumber` and `taxId`, its day the Sofia day of `date`, its amount `totalAmount` (net: a
+  receipt carries no VAT). A receipt is compared with the base; one that agrees only with the gross is counted apart.
+  Amounts agree within a cent a document, and at least 0.05% of the larger.
+- **Left out of the receipts, each counted once by its first reason:** not booked; rolled back (`reversedBy`,
+  `recordOnly`); a sale taken back (its `invoiceId` names an outgoing document: the reverse branch of
+  `invoicing.service.ts`); an `invoiceId` that names nothing; the mirror of a removed document; a correction (no
+  supplier, and notes that say so); no supplier; a supplier that is the company itself (a number of an org of the
+  split: a delivery between the stores); a supplier with no number. A delivery an LGR bill holds is kept, and counted.
+- **A return to the supplier** is the negative half of a разписка, an `adjustment` under the same `stokrazp:` marker,
+  or a hand-booked `return` out of a warehouse. It takes the supplier of the receipt under its marker, and pairs with a
+  credit note (`03`) dated up to 45 days after it.
+- **The tiers:** (1) a partner's month, the rows' base against the deliveries less the returns, equal net, equal gross
+  or different; (2) one row to one receipt within 3 days, the only receipt that fits the row and the only row it fits;
+  (3) one row to a run of the partner's receipts in date order, up to 10 days before the row, summed, when a single run
+  fits. Then the month's deliveries no row took are looked for in the registers of the 12 periods after (declared late).
+  A receipt takes the period of the row it pairs with; one that pairs with none is "not declared", never guessed.
+- **The output, counts only:** the register's rows by type and those dated outside their period; the month's receipts by
+  store, each reason left out, the deliveries and returns kept; tier 1 by partner; the rows paired by tier, net or gross,
+  the credit notes, the pairs across both stores and with receipts of another month; the rows left by type, split by
+  whether their partner delivered anything in the year (goods suppliers against services and expenses), and those left
+  because several receipts fit; where the month's deliveries and returns were declared.
+- **Expected to stay unpaired:** the protocols (`09`), which pair in a later slice through the books' link, and credit
+  notes with no return.
+- ⚠ **A receipt is worth its lines' unit cost.** The API import (`receive-stock-api.ts` → `receive-new-products.ts`)
+  books a receipt at the разписка's delivery prices, so `totalAmount` is the supplier's net. A receipt booked from a PDF
+  through Files takes an existing article's average cost, and the negative half of any разписка is booked at average
+  cost: their amounts are not the supplier's, and such a receipt or return pairs only by chance.
+- ⚠ **A whole-negative разписка names no supplier.** Its half is an adjustment with no contact, and no receipt carries
+  its marker: it is counted as "no supplier named", never paired.
+
+Not yet run on production.
+
 ## 10. Tests
 
 - **Integration**, fictional data only: every row of §1.4 as a fixture, posted and checked per account and analytic; the moving-average table (purchase, sale, negative on-hand, backdated); a month re-imported with changed values; the branch link refused across different `taxNumber`; `isForeignOrg` still refuses a branch user on the books org; idempotent worker; void and edit after filing.

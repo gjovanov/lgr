@@ -361,3 +361,21 @@ FR-25 §9, "R3: the cash place, explained".
 - **Tests:** `unit/shadow-sales.test.ts` (a card alone, a split tender, another account, the rule switched off, a
   refund on a credit note, the seed's fifteen), `integration/shadow-sales.flow.test.ts` (the seed's counts; a rule
   the org lacks: the dry run reads it, the real run refuses and reverses nothing, the seed then adds it).
+
+## A filed month of purchases against the stores' goods receipts (2026-11-25, FR-25 R4, slice 2)
+
+Slice 1 paired none of 202610's 310 rows: LGR holds almost no incoming bills, and the goods are in the stores' receipts.
+The owner chose option (c): the same month against the goods receipts of the home and every store of the split, paired
+on partner, day and amount. `services/biz/accounting-books/purchases/receipt-pairing.ts` pairs (import-pure),
+`receipt-pairing.service.ts` reads, `scripts/pair-purchase-receipts.ts --org <slug> --period YYYYMM [--details]` prints
+counts only and has no `--execute`. Design: FR-25 §9, "R4, slice 2: the rows paired with goods receipts, as built".
+- ⚠ **A receipt's `reference` is the store program's number, never the supplier's.** Pair a receipt on partner, day and
+  amount; a receipt has no field for the supplier's invoice number.
+- ⚠ **A receipt is net, and worth its lines' unit cost.** Compare it with a row's base (`03-31` + `03-32`) and count a
+  match to the gross apart. Only a receipt booked by the API import carries the supplier's prices; a PDF receipt of an
+  existing article and the negative half of a разписка are at average cost.
+- ⚠ **A receipt whose `invoiceId` names an outgoing document is a sale taken back**, never a purchase: leave it out.
+- **Tests:** `unit/purchase-receipt-pairing.test.ts` (the exclusions, the tiers, net against gross, a return to a credit
+  note, the cross-store count, a later register, a row dated early, the rows left by partner),
+  `integration/purchase-receipt-pairing.flow.test.ts` (a split's home and store, every outcome, nothing written, the
+  script's output with and without `--details`).
