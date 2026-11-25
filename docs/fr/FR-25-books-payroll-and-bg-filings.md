@@ -62,7 +62,7 @@ From the journal of the whole of 2023 (155,815 rows, 26,272 documents, 129,541 o
 
 | Doc | What | Operations |
 |---|---|---|
-| `-ФЕ` | sales invoice | per group `D702 K304[СТОКИ:group]` + qty, at group cost · `D411[КЛИЕНТИ:x] K702` net · `D411[КЛИЕНТИ:x] K4532` VAT · paid in cash at issue: `D501 K411[x]` · services `K703`, production `K701` + `D701 K303` · advance `D411 K412` |
+| `-ФЕ` | sales invoice | per group `D702 K304[СТОКИ:group]` + qty, at group cost · `D411[КЛИЕНТИ:x] K702` net · `D411[КЛИЕНТИ:x] K4532` VAT · paid at the counter as it is issued, in cash or by card: `D501 K411[x]` · services `K703`, production `K701` + `D701 K303` · advance `D411 K412` |
 | `КП` | till, **one document per device per month**, dated the last day | per group `D702 K304` + qty (100–200 lines) · `D411[КЛИЕНТИ:ОБОРОТ ОТ КАСОВИ ПРОДАЖБИ] K702`, `K4532` · `D501 K411` |
 | `-ФЕА` / `-ФИ` | annul / re-issue | same shape, negative |
 | `+ФЕ` | purchase invoice | goods `D304[СТОКИ:group] K401[ДОСТАВЧИЦИ:x]` + qty · materials `D302` · expense `D601/D602/D609[РАЗХОДИ:…]` · lease `D159`, interest `D621` · prepaid `D651` · asset `D20x[ДА:…]` · `D4531 K401` · cash: `D401 K501` |
@@ -81,7 +81,7 @@ Three things in this table that read as mistakes and are not:
 
 1. **Cost of sales is a debit on revenue**, `D702 K304`, not on a 6xx account. The credit side of 702 is revenue, the debit side is cost, and the balance is the margin. A report that nets 702 shows margin as revenue (§1.7).
 2. **Corrections are negative amounts on the same side** (593 operations in 2023), so turnovers come out as the books show them. Swapping sides, as `createInvoiceJournalEntry` does, would give different turnover columns.
-3. **The customer's account is hit even for cash**: `D411 K702`, then `D501 K411`. The partner ledger sees every sale.
+3. **The customer's account is hit even for cash**: `D411 K702`, then `D501 K411`. The partner ledger sees every sale. A card at the counter is booked the same way, on `501` (seen 2026-11-25, "R3: the cash place, explained").
 
 The `Вид` column on each document header (`1`, `3`, `17`, `35`, `39`…) is the VAT kind, which decides the register columns.
 
@@ -1030,9 +1030,9 @@ Built: `services/biz/accounting-books/` `product-group-review.ts` (the rules, im
 
 Built: `PostingRule`, its seed, the posting of one document, the books' cost of a group as of a day, the batch with its reversals, and the dry run's check against the accountant's entries. Code: `services/biz/accounting-books/` `posting-rule-seed.ts`, `posting-rule.service.ts`, `shadow-sales.ts`, `group-cost.ts`, `group-cost.service.ts`, `shadow-compare.ts`, `shadow-sales.service.ts`; scripts `scripts/seed-posting-rules.ts --org <slug> [--execute]` and `scripts/post-shadow-sales.ts --org <slug> --from <day> --to <day> [--execute]`, both dry runs by default that print counts only.
 
-- **The rules (§3.7), as data.** Twelve are seeded per books org, `sales.<invoice|debit_note|credit_note>.<goods|services|vat|cash>`, and a document applies them together: per group `D702 K304[СТОКИ:group]` with the quantity at the group's cost, and `D411[КЛИЕНТИ:partner] K702` the goods' net; `D411[partner] K703` the services' net; `D411[partner] K4532` the VAT, with the register row; `D501 K411[partner]` what was paid in cash at issue. Codes and roots are checked against the org's own chart and tree, and a seed refuses an org that lacks one. A seed adds only the rules an org lacks, by `code`, and never changes one it has. Against the sketch in §3.7: no `gross` amount (no sales rule books one), the rule carries the books' document type and the partner's root, and an analytic is `contact` or `group`: a path is refused, not guessed. Production (`K701`, `D701 K303`) and advances (`K412`) have no rule, and a document that needs one waits.
+- **The rules (§3.7), as data.** Fifteen are seeded per books org, `sales.<invoice|debit_note|credit_note>.<goods|services|vat|cash|card>`, and a document applies them together: per group `D702 K304[СТОКИ:group]` with the quantity at the group's cost, and `D411[КЛИЕНТИ:partner] K702` the goods' net; `D411[partner] K703` the services' net; `D411[partner] K4532` the VAT, with the register row; `D501 K411[partner]` what was paid in cash at issue, and by the card's own rule `D501 K411[partner]` what was paid by card at issue (since 2026-11-25: the books book a card at the counter on `501` too, and a rule of its own lets the accountant point it elsewhere). Codes and roots are checked against the org's own chart and tree, and a seed refuses an org that lacks one. A seed adds only the rules an org lacks, by `code`, and never changes one it has. A rule the seed holds and the org lacks (none stored, or one added to the seed after the org was seeded) is read from the seed by a dry run, which counts it; a real run refuses until the seed has added it, since without it every document that needs it would wait and its live posting be reversed. Against the sketch in §3.7: no `gross` amount (no sales rule books one), the rule carries the books' document type and the partner's root, and an analytic is `contact` or `group`: a path is refused, not guessed. Production (`K701`, `D701 K303`) and advances (`K412`) have no rule, and a document that needs one waits.
 - **A document posts whole or not at all.** Every amount it has must be carried by exactly one active operation. Otherwise it waits, counted by its first reason: not a sales document, not issued, no register number, not the org's own series, before the euro, not in euro, an invoice for a till sale (§12, question 2), a document the register cannot carry, no lines, a line without a product or on a product the org lacks, a rule it cannot apply, no rule, two rules, conflicting rules, an account the chart lacks, no partner, no partner analytic or two, a product whose group is only a suggestion, unmapped, or inactive, no cost, nothing to post.
-- **Amounts, to the cent.** VAT and base are the document's own, rounded as the sales register rounds them, so `K4532` and `K702 + K703` are the register row's cells. The services' net is the sum of their lines' taxable amounts, rounded once, and the goods take the rest of the base. A group's cost is rounded once per group operation of a document, `Σ quantity × unit cost`, since the books book one operation per group. A credit notice books the same operations negative on the same sides, quantities too. The customer is hit for a cash sale as well: `D501 K411` is what LGR recorded as paid in cash at the counter on the document's business day (`cash_on_issue`, `payment_receipt`, `payment_storno`), never a payment recorded later.
+- **Amounts, to the cent.** VAT and base are the document's own, rounded as the sales register rounds them, so `K4532` and `K702 + K703` are the register row's cells. The services' net is the sum of their lines' taxable amounts, rounded once, and the goods take the rest of the base. A group's cost is rounded once per group operation of a document, `Σ quantity × unit cost`, since the books book one operation per group. A credit notice books the same operations negative on the same sides, quantities too. The customer is hit for a cash sale as well: `D501 K411` is what LGR recorded as paid in cash at the counter on the document's business day (`cash_on_issue`, `payment_receipt`, `payment_storno`), never a payment recorded later; a card's is what LGR recorded as paid by card at the counter that day (`card_on_issue`, `payment_receipt`, `payment_storno`), by the card's rule, after the cash.
 - **Cost (`costBasis: 'books'`).** The group's moving average at the START of the sale's business day, replayed from the books: the company's 304 lines with the group's analytic, value and quantity, summed per group path and day by one aggregation per org of the split (paths, because ids differ between orgs), from the last imported opening, which restates the year and counts on its own day. The sale's day does not count: nothing records the order of a day's purchases and sales, and the books' own entry of the very sale must not feed the cost it is checked against. The replay walks each day goods in first, then goods out, §3.5's own rule:
   - Goods in (a purchase, net of what went back to the supplier that day) come in at the books' value and are averaged in with what is on hand. With nothing on hand, or less than nothing (sold before the purchase was booked), what is left after them costs what came in; a group still short after them keeps its last average. A day that sends more back than it buys sends it back at the average.
   - A value without goods (a line without a quantity: a discount, a cost added, a value corrected) moves the value of what is on hand, and with nothing on hand nothing.
@@ -1049,9 +1049,10 @@ Built: `PostingRule`, its seed, the posting of one document, the books' cost of 
 **Open, for the accountant:**
 
 1. In what order does PlusMinus cost a day's documents: does a purchase booked on the day of a sale count in that sale's cost? The batch says no. The cost spread on filed months will show how far that is from the books. **Answered 2026-11-25:** the daily average, as until March, with an override for write-offs and losses (below, "R3: the accountant's override of a group's average").
-2. Is `D501 K411` booked from the document's own cash at issue (`ПЛАЩАНЕ` `1`, `paidCash`) or from what the till took? The batch takes LGR's cash payments at the counter on the day.
+2. Is `D501 K411` booked from the document's own cash at issue (`ПЛАЩАНЕ` `1`, `paidCash`) or from what the till took? The batch takes LGR's cash payments at the counter on the day. **Answered from the data 2026-11-25:** from the document's own payment. A document paid at the counter is coded `1` and debits `501` what was paid, a card's as well as cash; a cash on delivery is coded `1` too (question 5). Below, "R3: the cash place, explained".
 3. A group sold before the books ever held it: what does PlusMinus cost it at?
 4. An invoice issued for a till sale: is it booked as a `-ФЕ` with its own cost, and does the till's `КП` month leave it out? Until §12, question 2 is answered, it waits (`till_sale_invoice`).
+5. A cash on delivery (наложен платеж): the books book it as paid in cash on the invoice's day (`ПЛАЩАНЕ` `1`, `D501 K411` the total). LGR records no payment until the courier pays, and the shadow books none. Should the shadow book it as the books do? (2026-11-25, "R3: the cash place, explained".)
 
 **The first dry run on production** (2026-11-20; both stores' filed months and November to date; counts only, nothing written):
 
@@ -1114,6 +1115,28 @@ read the same comparison and show the amounts.
   store's). Each row is equal, or differs as the gate names it, or is on one side only.
 - Until `post-shadow-sales.ts --execute` writes a month, its shadow side is empty: every books document is the books'
   alone, and the dry run's self-check is the comparison.
+
+### R3: the cash place, explained (2026-11-25)
+
+The comparison's first run after the shadow was written on production: over every month the shadow holds (the home's
+July to November, the other store's October and November), 360 compared documents differed on cash (`D501`, `K411`).
+Read one by one, read-only, with the books' payment code beside LGR's method and payments, all 360 have one of five
+causes. Counts only; the rows stayed with the person who ran it.
+
+| Documents | Cause | What changed |
+|---|---|---|
+| 328 | paid by card at the counter: the books code the document `1` and debit `501` what was paid, as for cash; the shadow took cash only | the card's rule, `sales.<kind>.card` (slice 3) |
+| 13 | cash on delivery: the books code it `1` and debit `501` the total on the invoice's day; LGR waits for the courier | none: question 5 |
+| 9 | the books' own amounts, a cent or two from the printed document (the sales register gate's money rows): the cash follows the books' total | none: the books' |
+| 8 | paid at the counter, but LGR records no payment: 3 credit notes refunded at the counter (the settlement rule settles invoices only), and 5 invoices of one imported day that were issued outside the import's conversion, with no settlement and no audit row | LGR's data, not the shadow's |
+| 2 | LGR records them paid in cash, the books by bank | LGR's data or the books' |
+
+- **The rule, not the books, was short.** In those months the books book all but one card sale at the counter on
+  `501`, the account they book cash on. The card's rule books what LGR recorded as paid by card at the counter on the
+  document's day, after the cash, on the same accounts, so a split tender posts two operations.
+- **LGR's own records.** The 8 are open in LGR as well, in the aging report and the customer's balance, and the 2
+  say cash where the books say bank. Across both stores, 19 issued documents whose method is cash or card hold no
+  counter payment in LGR, all in the home (14 of one import run, 5 credit notes), none in the other store.
 
 ### R3: the accountant's override of a group's average, as built
 
