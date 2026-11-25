@@ -2864,6 +2864,19 @@
       "notCounted": "Noch nicht gezählt",
       "difference": "Mit Differenz"
     },
+    "countLine": {
+      "lineNo": "Nr.",
+      "needWarehouse": "Zuerst das Lager wählen: Die Systemmenge wird daraus gelesen",
+      "notStocked": "hier nicht geführt",
+      "already": "Bereits in der Inventur: Zeile {n}",
+      "added": "{n} Artikel hinzugefügt",
+      "addedSomeThere": "{n} Artikel hinzugefügt; {m} waren bereits in der Inventur",
+      "allThere": "Alle {m} sind bereits in der Inventur",
+      "loadedMissing": "{n} Bestände hinzugefügt; die vorhandenen Zeilen behalten das Eingegebene",
+      "loadedNone": "Alle Bestände des Lagers sind bereits in der Inventur",
+      "warehouseLocked": "Gesperrt, solange die Inventur Zeilen hat: Entfernen Sie sie, um das Lager zu wechseln",
+      "warehouseLockedSaved": "Die gespeicherte Inventur hat noch Zeilen: Speichern Sie sie ohne Zeilen, um das Lager zu wechseln"
+    },
     "systemQty": "System-Menge",
     "countedQty": "Gezählte Menge",
     "variance": "Abweichung",

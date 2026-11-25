@@ -46,7 +46,8 @@ test.describe('Inventory count form', () => {
         page.getByRole('button', { name: /load products/i }).click(),
       ])
       expect(levels.status()).toBe(200)
-      const lines = page.locator('form tbody tr')
+      // FR-33.18: the lines that hold an article; the entry line (FR-33.4) is a row too.
+      const lines = page.locator('form tbody tr[data-testid="count-line"]')
       await expect(lines.first()).toBeVisible({ timeout: 15000 })
       const lineCount = await lines.count()
 
