@@ -355,5 +355,9 @@ FR-25 §9, "R3: the cash place, explained".
 - ⚠ **A card at the counter is booked on `501`, as cash is.** The books code a document paid at the counter `1` and
   debit `501` what was paid, whatever the means: `sales.<kind>.card` books what LGR recorded as paid by card at the
   counter on the document's day, after the cash. It is a rule of its own, so the accountant can point it elsewhere.
+- ⚠ **A real run refuses while the org lacks a rule the seed holds.** Without it every document that needs it is
+  refused, and a refused document's live posting is reversed: a run at a newer seed before `seed-posting-rules.ts`
+  would take the card sales out of the shadow. A dry run reads the missing rules from the seed and counts them.
 - **Tests:** `unit/shadow-sales.test.ts` (a card alone, a split tender, another account, the rule switched off, a
-  refund on a credit note, the seed's fifteen), `integration/shadow-sales.flow.test.ts` (the seed's counts).
+  refund on a credit note, the seed's fifteen), `integration/shadow-sales.flow.test.ts` (the seed's counts; a rule
+  the org lacks: the dry run reads it, the real run refuses and reverses nothing, the seed then adds it).

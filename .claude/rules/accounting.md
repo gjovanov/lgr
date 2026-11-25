@@ -303,5 +303,10 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
   debit `501` what was paid, whatever the means: `sales.<kind>.card` books what LGR recorded as paid by card at the
   counter on the document's day, after the cash. It is a rule of its own, so the accountant can point it elsewhere.
 
+- ⚠ **A real run refuses while the org lacks a rule the seed holds.** Without it every document that needs it is
+  refused, and a refused document's live posting is reversed: a run at a newer seed before `seed-posting-rules.ts`
+  would take the card sales out of the shadow. A dry run reads the missing rules from the seed and counts them.
+
 - **After a rule is added to the seed**, `scripts/seed-posting-rules.ts --org <slug> [--execute]` adds only the rules
-  an org lacks, and the next `post-shadow-sales.ts` over the months reposts the documents the new rule changes.
+  an org lacks, then the next `post-shadow-sales.ts` over the months reposts the documents the new rule changes. Seed
+  first: the run's dry run plans the same before and after, the real run refuses before.

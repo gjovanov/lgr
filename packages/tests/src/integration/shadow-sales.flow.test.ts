@@ -6,6 +6,7 @@ import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import type { Types } from 'mongoose'
 import { clearCollections, setupTestDB, teardownTestDB, testDbUri } from '../setup'
+import { captureRejection } from '../helpers/capture-rejection'
 import { createTestContact, createTestInvoice, createTestOrg, createTestProduct, createTestUser } from '../helpers/factories'
 import { Account, AccountingAnalytic, Invoice, JournalEntry, PostingRule, ProductGroupMap, VatRegisterEntry } from 'db/models'
 import { importAnalytics, importChart, importJournalMonth } from 'services/biz/accounting-books/import.service'
@@ -182,7 +183,7 @@ beforeEach(async () => {
 describe('posting a store\'s sales documents into the shadow ledger', () => {
   it('a dry run posts nothing, says why a document cannot post, and checks the rest against the books', async () => {
     const r = await postShadowSales(world.store.id, MARCH_RUN)
-    expect(r.rules).toEqual({ stored: 15, active: 15, fromSeed: false })
+    expect(r.rules).toEqual({ stored: 15, active: 15, fromSeed: 0 })
     expect([r.documents, r.posts, r.refused.product_unmapped, r.voided]).toEqual([4, 3, 1, 0])
     expect(r.actions).toEqual({ post: 3, repost: 0, reverse: 0, post_and_reverse: 0, none: 1 })
     expect(r.vatRows).toEqual({ create: 3, update: 0, remove: 0, unchanged: 0, frozen: 0 })
@@ -310,6 +311,38 @@ describe('the posting rules of a books org', () => {
     expect(await seedPostingRules(world.store.id, { execute: true })).toEqual({ rules: 15, create: 1, kept: 14, written: 1 })
     expect(await seedPostingRules(world.store.id, { execute: true })).toEqual({ rules: 15, create: 0, kept: 15, written: 0 })
     expect(await PostingRule.findOne({ orgId: world.store.id, code: 'sales.invoice.cash' }).lean()).toMatchObject({ isActive: false, source: 'accountant' })
+  })
+})
+
+describe('a rule the seed holds and the org lacks', () => {
+  it('a dry run reads it from the seed; a real run refuses until it is seeded, and reverses nothing meanwhile', async () => {
+    // inv1 paid by card at the counter, and posted with the card's rule.
+    await Invoice.updateOne({ _id: world.docs.inv1 }, { $set: { paymentMethod: 'card', 'payments.0.method': 'card', 'payments.0.origin': 'card_on_issue' } })
+    expect((await postShadowSales(world.store.id, { ...MARCH_RUN, execute: true, by: world.userId })).written?.entries).toBe(3)
+    const inv1 = (await shadowEntries(world.store.id)).find(e => String(e.sourceId) === world.docs.inv1)!
+    expect((await linesOf(inv1)).slice(-2)).toEqual([['debit', '501', null, 48, null], ['credit', '411', CUSTOMER, 48, null]])
+
+    // An org seeded before the card's rule was in the seed: without it, inv1 would be refused and its posting reversed.
+    await PostingRule.deleteMany({ orgId: world.store.id, code: /\.card$/ })
+    const dry = await postShadowSales(world.store.id, MARCH_RUN)
+    expect(dry.rules).toEqual({ stored: 12, active: 15, fromSeed: 3 })
+    expect(dry.actions).toEqual({ post: 0, repost: 0, reverse: 0, post_and_reverse: 0, none: 4 })
+    const refused = await captureRejection(postShadowSales(world.store.id, { ...MARCH_RUN, execute: true, by: world.userId }))
+    expect(refused).toMatchObject({ code: 'no_rules' })
+    expect(String(refused?.message)).toContain('sales.invoice.card')
+    expect(await JournalEntry.countDocuments({ ledger: 'shadow' })).toBe(3)
+
+    expect(await seedPostingRules(world.store.id, { execute: true })).toEqual({ rules: 15, create: 3, kept: 12, written: 3 })
+    const after = await postShadowSales(world.store.id, { ...MARCH_RUN, execute: true, by: world.userId })
+    expect(after.rules).toEqual({ stored: 15, active: 15, fromSeed: 0 })
+    expect(after.written).toEqual({ entries: 0, reversals: 0, vatRows: 0, raced: 0 })
+  })
+
+  it('an org with none stored: a dry run reads them all from the seed, a real run refuses', async () => {
+    await PostingRule.deleteMany({ orgId: world.store.id })
+    expect((await postShadowSales(world.store.id, MARCH_RUN)).rules).toEqual({ stored: 0, active: 15, fromSeed: 15 })
+    const refused = await captureRejection(postShadowSales(world.store.id, { ...MARCH_RUN, execute: true, by: world.userId }))
+    expect(refused).toMatchObject({ code: 'no_rules', message: 'The org holds no posting rules: run scripts/seed-posting-rules.ts first.' })
   })
 })
 

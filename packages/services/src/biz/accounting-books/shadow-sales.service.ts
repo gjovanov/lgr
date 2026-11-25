@@ -74,7 +74,8 @@ export interface SelfCheck {
 export interface ShadowRunReport {
   from: string
   to: string
-  rules: { stored: number; active: number; fromSeed: boolean }
+  /** `fromSeed`: the seed's rules the org lacks, which a dry run read from the seed (a real run refuses while any are). */
+  rules: { stored: number; active: number; fromSeed: number }
   cost: GroupCosts['read']
   /** The org's issued sales documents of the period. */
   documents: number
@@ -140,10 +141,18 @@ export async function postShadowSales(orgId: string, opts: ShadowRunOptions): Pr
   })
   const { homeOrg } = await booksOrgsOf(orgId)
 
-  // The rules: the org's own. With none stored a dry run reads the seed's, and says so; a real run refuses.
+  // The rules: the org's own. A rule of the seed's that the org lacks (none stored, or one added to the seed after the
+  // org was seeded) is read from the seed by a dry run, which says so. ⚠ A real run refuses until
+  // scripts/seed-posting-rules.ts has added it: without it, every document that needs it would be refused, and a refused
+  // document's live posting is reversed (`planShadowAction`).
   const stored = await postingRulesOf(orgId)
-  if (!stored.length && opts.execute) throw new ShadowSalesError('The org holds no posting rules: run scripts/seed-posting-rules.ts first.', 'no_rules')
-  const rules: readonly PostingRuleData[] = stored.length ? stored : SALES_POSTING_RULES
+  const storedCodes = new Set(stored.map(r => r.code))
+  const unseeded = SALES_POSTING_RULES.filter(r => !storedCodes.has(r.code))
+  if (unseeded.length && opts.execute) {
+    const lacks = stored.length ? `lacks ${unseeded.length} of the seed's posting rules (${unseeded.map(r => r.code).join(', ')})` : 'holds no posting rules'
+    throw new ShadowSalesError(`The org ${lacks}: run scripts/seed-posting-rules.ts first.`, 'no_rules')
+  }
+  const rules: readonly PostingRuleData[] = [...stored, ...unseeded]
   const partnerRoots = [...new Set(rules.map(r => r.partnerRoot).filter((r): r is string => !!r))]
 
   // The documents: issued (a voided one too), of a business day in the period.
@@ -193,7 +202,7 @@ export async function postShadowSales(orgId: string, opts: ShadowRunOptions): Pr
 
   const report: ShadowRunReport = {
     from: opts.from, to: opts.to,
-    rules: { stored: stored.length, active: rules.filter(r => r.isActive).length, fromSeed: !stored.length },
+    rules: { stored: stored.length, active: rules.filter(r => r.isActive).length, fromSeed: unseeded.length },
     cost: cost.read,
     documents: docs.length, posts: 0, refused: zeroes(SHADOW_REFUSALS), voided: 0,
     actions: zeroes(['post', 'repost', 'reverse', 'post_and_reverse', 'none'] as const),
