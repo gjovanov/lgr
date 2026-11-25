@@ -47,6 +47,7 @@
     "./composables/useContactLedger": "./src/composables/useContactLedger.ts",
     "./composables/useSearchDebounce": "./src/composables/useSearchDebounce.ts",
     "./composables/latest-only": "./src/composables/latest-only.ts",
+    "./composables/field-search": "./src/composables/field-search.ts",
     "./composables/price-lookups": "./src/composables/price-lookups.ts",
     "./composables/load-failure": "./src/composables/load-failure.ts",
     "./composables/useFormFeedback": "./src/composables/useFormFeedback.ts",
