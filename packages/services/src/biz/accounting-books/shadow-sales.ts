@@ -13,6 +13,9 @@
  *   paid at issue     D501        K411[partner]   what was paid in cash at the counter as it was issued
  *   paid by card      D501        K411[partner]   what was paid by card at the counter as it was issued: the books
  *                                                 book a card sale on the cash account too (`ПЛАЩАНЕ` `1`)
+ *   cash on delivery  D501        K411[partner]   a наложен платеж's total, as paid on its day: LGR waits for the courier,
+ *                                                 the books do not (`ПЛАЩАНЕ` `1`). Its rule is the switch: turned off, the
+ *                                                 document posts as LGR holds it, with nothing paid
  *
  * ⚠ Three things that read as mistakes and are not (§1.4): cost of sales is a debit on REVENUE (`D702 K304`); the
  * customer's account is hit even for a sale paid in cash (`D411 … K702`, then `D501 K411`); and a credit note books the
@@ -74,6 +77,8 @@ export interface ShadowDocument {
   partner?: RegisterDocument['partner']
   /** An invoice made for a till sale (`cashSaleRef`): the till's sale is booked by the till's month (§12, question 2). */
   tillSale?: boolean
+  /** How it is paid (`Invoice.paymentMethod`): a наложен платеж's is `cash_on_delivery`. */
+  paymentMethod?: string
   lines: readonly ShadowLineInput[]
   payments?: readonly ShadowPaymentInput[]
 }
@@ -196,10 +201,15 @@ export const PAID_AT_ISSUE_ORIGINS: ReadonlySet<string> = new Set(['cash_on_issu
 /** The methods a rule's `match.paymentMethod` may name: each books what was paid that way at the counter. */
 const PAID_SCOPES = ['cash', 'card'] as const
 type PaidScope = (typeof PAID_SCOPES)[number]
-type Scope = 'goods' | 'service' | 'document' | PaidScope
+/** And a наложен платеж: what the books take as paid on its day, its total, where LGR records nothing until the courier pays. */
+const ON_DELIVERY = 'cash_on_delivery'
+type Scope = 'goods' | 'service' | 'document' | PaidScope | typeof ON_DELIVERY
 type Slot = `${Scope}.${'net' | 'vat' | 'cost' | 'paid'}`
-const ALLOWED: Record<Scope, readonly string[]> = { goods: ['cost', 'net'], service: ['net'], document: ['vat'], cash: ['paid'], card: ['paid'] }
+const ALLOWED: Record<Scope, readonly string[]> = {
+  goods: ['cost', 'net'], service: ['net'], document: ['vat'], cash: ['paid'], card: ['paid'], [ON_DELIVERY]: ['paid'],
+}
 const isPaidScope = (method: string): method is PaidScope => (PAID_SCOPES as readonly string[]).includes(method)
+const isMethodScope = (method: string): method is PaidScope | typeof ON_DELIVERY => isPaidScope(method) || method === ON_DELIVERY
 
 const refuse = (refused: ShadowRefusal, detail?: string): ShadowOutcome => ({ refused, ...(detail !== undefined ? { detail } : {}) })
 
@@ -208,7 +218,7 @@ function scopeOf(rule: PostingRuleData): Scope | { unsupported: string } {
   const { lineKind, paymentMethod } = rule.match
   if (lineKind && paymentMethod) return { unsupported: rule.code }
   if (lineKind) return lineKind === 'goods' || lineKind === 'service' ? lineKind : { unsupported: rule.code }
-  if (paymentMethod) return isPaidScope(paymentMethod) ? paymentMethod : { unsupported: rule.code }
+  if (paymentMethod) return isMethodScope(paymentMethod) ? paymentMethod : { unsupported: rule.code }
   return 'document'
 }
 
@@ -252,10 +262,16 @@ export function postShadowSale(doc: ShadowDocument, input: PostingInput): Shadow
     .filter(p => p.method === method && !!p.origin && PAID_AT_ISSUE_ORIGINS.has(p.origin) && p.date instanceof Date && +sofiaDay(p.date) === +day)
     .reduce((s, p) => s + (Number(p.amount) || 0), 0))))
   const paid: Record<PaidScope, number> = { cash: paidBy('cash'), card: paidBy('card') }
+  // ⚠ A наложен платеж is not paid as it is issued: LGR leaves it due until the courier pays, and the books book it as paid
+  // on its day (`ПЛАЩАНЕ` `1`, `D501 K411` the total). Its own rule follows the books, for what the counter did not take of
+  // the total, so nothing is booked twice. That rule is the switch: with it off, nothing applies, and the document posts as
+  // LGR holds it, with nothing paid. It is never refused for want of that rule, as a payment LGR holds would be.
+  const onDelivery = doc.paymentMethod === ON_DELIVERY ? Math.max(0, Math.abs(cents(doc.total)) - paid.cash - paid.card) : 0
 
   // The rules this document applies, by what they carry.
   const present: Record<Scope, boolean> = {
     goods: goods.length > 0, service: services.length > 0, document: true, cash: paid.cash !== 0, card: paid.card !== 0,
+    [ON_DELIVERY]: onDelivery !== 0,
   }
   const applying = input.rules.filter(r => r.isActive && r.match.docKind === doc.type && r.match.direction === 'outgoing')
   const bySlot = new Map<Slot, { rule: PostingRuleData; op: PostingRuleData['operations'][number] }[]>()
@@ -279,6 +295,8 @@ export function postShadowSale(doc: ShadowDocument, input: PostingInput): Shadow
     ...(services.length ? ['service.net'] as Slot[] : []),
     ...(vat ? ['document.vat'] as Slot[] : []),
     ...PAID_SCOPES.filter(m => paid[m]).map(m => `${m}.paid` as Slot),
+    // Only while its rule is on (present means a rule applies): off, it is no amount the document has.
+    ...(onDelivery && bySlot.has(`${ON_DELIVERY}.paid`) ? [`${ON_DELIVERY}.paid` as Slot] : []),
   ]
   for (const slot of needed) {
     const n = bySlot.get(slot)?.length ?? 0
@@ -327,7 +345,7 @@ export function postShadowSale(doc: ShadowDocument, input: PostingInput): Shadow
     costs.push({ groupId, quantity, amount: roundCents(quantity * unitCost), ...(g.unit ? { unit: g.unit } : {}) })
   }
 
-  // The operations, in a fixed order: the cost per group, the nets, the VAT, the cash, the card.
+  // The operations, in a fixed order: the cost per group, the nets, the VAT, the cash, the card, the cash on delivery.
   const lines: ShadowLine[] = []
   let opNo = 0
   const analyticOf = (spec: string | undefined, groupId?: string) =>
@@ -353,6 +371,7 @@ export function postShadowSale(doc: ShadowDocument, input: PostingInput): Shadow
   if (services.length && servicesNet) book(opOf('service.net'), servicesNet)
   if (vat) book(opOf('document.vat'), vat)
   for (const m of PAID_SCOPES) if (paid[m]) book(opOf(`${m}.paid`), paid[m])
+  if (needed.includes(`${ON_DELIVERY}.paid`)) book(opOf(`${ON_DELIVERY}.paid`), onDelivery)
   if (!lines.length) return refuse('nothing_to_post')
 
   const entry: ShadowEntryDraft = {

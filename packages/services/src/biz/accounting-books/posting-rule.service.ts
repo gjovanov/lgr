@@ -11,7 +11,7 @@ import { SALES_POSTING_RULES, planSeed, type PostingRuleData } from './posting-r
  */
 
 export class PostingRulesError extends Error {
-  constructor(message: string, readonly code: 'not_a_books_org' | 'chart_incomplete') {
+  constructor(message: string, readonly code: 'not_a_books_org' | 'chart_incomplete' | 'no_such_rule') {
     super(message)
     this.name = 'PostingRulesError'
   }
@@ -59,6 +59,37 @@ export async function seedPostingRules(orgId: string, opts: { execute?: boolean 
     updateOne: { filter: { orgId: org, code }, update: { $setOnInsert: { ...rule, source: 'seed' } }, upsert: true },
   })), { ordered: false })
   return { ...report, written: res.upsertedCount }
+}
+
+export interface SwitchReport {
+  /** The rule's id, for the audit row. */
+  id: string
+  code: string
+  label: string
+  /** As it stood. */
+  wasActive: boolean
+  /** As asked. */
+  active: boolean
+  /** With `execute`: whether this run changed it. */
+  changed?: boolean
+}
+
+/**
+ * Turns one of the org's posting rules on or off by its code: the accountant's switch over a rule
+ * (`scripts/switch-posting-rule.ts`). The posting ignores a rule that is off. A document that then lacks a rule for an
+ * amount it has waits, counted; a наложен платеж posts as LGR holds it, with nothing paid (`shadow-sales.ts`). The rule
+ * is marked the accountant's, and no seed run turns it back. ⚠ What is already posted changes only when a run covers
+ * its day.
+ */
+export async function setPostingRuleActive(orgId: string, code: string, active: boolean, opts: { execute?: boolean } = {}): Promise<SwitchReport> {
+  await assertBooksOrg(orgId)
+  const org = oid(orgId)
+  const rule = await PostingRule.findOne({ orgId: org, code }).select('code label isActive').lean<{ _id: unknown; code: string; label: string; isActive?: boolean }>()
+  if (!rule) throw new PostingRulesError(`The org holds no posting rule ${code}.`, 'no_such_rule')
+  const report: SwitchReport = { id: String(rule._id), code, label: rule.label, wasActive: rule.isActive !== false, active }
+  if (!opts.execute) return report
+  const res = await PostingRule.updateOne({ _id: rule._id, orgId: org, isActive: { $ne: active } }, { $set: { isActive: active, source: 'accountant' } })
+  return { ...report, changed: res.modifiedCount === 1 }
 }
 
 /** The org's rules, as the posting reads them. Inactive ones included: the posting ignores them. */

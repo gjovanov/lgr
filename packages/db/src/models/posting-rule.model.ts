@@ -4,7 +4,8 @@ import { replicate } from '../replication/declare.js'
 
 /**
  * What an operation of a rule books (FR-25 §3.7): the net of the lines the rule is for, the document's VAT, the cost of
- * its goods (per goods group, at the books' average), or what was paid in cash as it was issued.
+ * its goods (per goods group, at the books' average), or what was paid as it was issued: in cash or by card at the
+ * counter, and for a наложен платеж its total, which the books take as paid on its day.
  */
 export const POSTING_AMOUNTS = ['net', 'vat', 'cost', 'paid'] as const
 export type PostingAmount = (typeof POSTING_AMOUNTS)[number]

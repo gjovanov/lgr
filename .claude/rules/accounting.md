@@ -325,3 +325,17 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
 
 - **The command.** `scripts/pair-purchase-receipts.ts --org <slug> --period YYYYMM [--details]`: read-only, no
   `--execute`, counts only; `--details` names rows and movements, for the person running it.
+
+## A наложен платеж as the books book it, and a switch over a rule (2026-11-25, FR-25 R3, slice 3)
+
+- ⚠ **A наложен платеж is booked as paid on its day, its whole total.** `sales.<kind>.cash_on_delivery` books
+  `D501 K411[partner]` what the counter did not take of the total that day, so a same-day payment is never booked twice;
+  the courier's money recorded on a later day is a receipt of its own.
+
+- ⚠ **Its rule is the one switch: off, a наложен платеж posts as LGR holds it.** A rule that is off is ignored, and a
+  document that then lacks a rule for an amount it has waits (a payment LGR holds, a line, the VAT). A наложен платеж
+  has no such amount in LGR until the courier pays, so it posts with nothing paid instead. A switched rule is the
+  accountant's, a seed never turns it back, and what is posted changes only when a run covers its day.
+
+- **Switching a rule:** `scripts/switch-posting-rule.ts --org <slug> --code <code> --on|--off [--execute]`, then
+  `post-shadow-sales.ts` over the months it touches, dry run first.
