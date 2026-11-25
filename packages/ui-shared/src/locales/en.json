@@ -2858,6 +2858,12 @@
     "addItem": "Add Item",
     "deletePriceListConfirm": "Are you sure you want to delete this price list?",
     "countItems": "Count Items",
+    "countSearch": "Filter lines by name, SKU or barcode",
+    "countFilter": {
+      "all": "All",
+      "notCounted": "Not counted yet",
+      "difference": "With a difference"
+    },
     "systemQty": "System Qty",
     "countedQty": "Counted Qty",
     "variance": "Variance",

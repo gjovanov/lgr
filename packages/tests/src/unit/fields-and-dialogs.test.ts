@@ -84,7 +84,8 @@ describe('decimal fields (FR-31.16)', () => {
     const grids: [string, string[]][] = [
       ['web/src/modules/invoicing/components/document-form/DocumentLineTable.vue', ['v-model="line.quantity"', 'v-model="line.unitPrice"', 'v-model="line.discount"']],
       ['web/src/modules/inventory/views/MovementFormView.vue', ['v-model="line.quantity"', 'v-model="line.unitCost"']],
-      ['web/src/modules/inventory/views/InventoryCountFormView.vue', ['v-model="line.countedQuantity"']],
+      // FR-33.1: the count's lines are a data table, its Counted cell a DecimalField in the `qty` column's slot.
+      ['web/src/modules/inventory/views/InventoryCountFormView.vue', [':model-value="item.countedQuantity"']],
       ['ui-shared/src/components/cash-register/RegisterTerminal.vue', ['data-testid="cart-qty"']],
     ]
     for (const [file, fields] of grids) {

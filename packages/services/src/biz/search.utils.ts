@@ -9,6 +9,8 @@
  *
  * Multi-keyword: space-separated = AND (all keywords must match at least one field).
  */
+import { homoglyphPattern, searchKeywords } from 'config/search-text'
+
 export interface BuildSearchFilterOptions {
   /**
    * When set, search runs against the lowered mirror fields. Map source field → mirror field.
@@ -32,31 +34,11 @@ export interface BuildSearchFilterOptions {
   alsoIds?: string[][]
 }
 
-/** The keywords of a search text: whitespace-separated, none empty. */
-export function searchKeywords(search: string): string[] {
-  return search.trim().split(/\s+/).filter(Boolean)
-}
-
 /**
- * Lowercase Latin ↔ Cyrillic pairs that render identically (or nearly) once lowercased from
- * their look-alike capitals (A/А, B/В, C/С, E/Е, H/Н, K/К, M/М, O/О, P/Р, T/Т, X/Х, Y/У).
+ * The keywords of a search text, and the Latin/Cyrillic look-alike classes: FR-33.2 moved them to `config/search-text`,
+ * which the screens that filter rows they hold read too, so a word matches the same rows on the server and on screen.
  */
-const HOMOGLYPH_PAIRS: Array<[string, string]> = [
-  ['a', 'а'], ['b', 'в'], ['c', 'с'], ['e', 'е'], ['h', 'н'], ['k', 'к'],
-  ['m', 'м'], ['o', 'о'], ['p', 'р'], ['t', 'т'], ['x', 'х'], ['y', 'у'],
-]
-const HOMOGLYPH_CLASS: Record<string, string> = {}
-for (const [lat, cyr] of HOMOGLYPH_PAIRS) {
-  HOMOGLYPH_CLASS[lat] = `[${lat}${cyr}]`
-  HOMOGLYPH_CLASS[cyr] = `[${lat}${cyr}]`
-}
-
-/** Expand look-alike letters of an already-escaped, lowercased keyword into character classes. */
-function expandHomoglyphs(escapedLower: string): string {
-  let out = ''
-  for (const ch of escapedLower) out += HOMOGLYPH_CLASS[ch] ?? ch
-  return out
-}
+export { searchKeywords }
 
 export function buildSearchFilter(
   search: string,
@@ -72,7 +54,7 @@ export function buildSearchFilter(
   // With homoglyphs on, the keyword is lowercased on BOTH paths: the classes are lowercase, and
   // the non-lowered path's `i` flag folds the field side.
   const glyphs = options?.homoglyphs
-    ? (k: string) => expandHomoglyphs(escapeRegex(k.toLocaleLowerCase(locale)))
+    ? (k: string) => homoglyphPattern(escapeRegex(k.toLocaleLowerCase(locale)))
     : null
   const escaped = keywords.map(k => (glyphs ? glyphs(k) : escapeRegex(k)))
   const escapedLower = lowered
@@ -119,7 +101,7 @@ export function buildProductSearchFilter(search: string, opts: { alsoIds?: strin
   const keywords = searchKeywords(search)
   if (!keywords.length) return {}
   const clauses = keywords.map((k, idx) => {
-    const pattern = expandHomoglyphs(escapeRegex(k.toLocaleLowerCase('bg')))
+    const pattern = homoglyphPattern(escapeRegex(k.toLocaleLowerCase('bg')))
     const or: Record<string, any>[] = [{ [PRODUCT_SEARCH_FIELD]: { $regex: pattern } }]
     // An article the field is not on yet (a raw driver write, a row from before the backfill) is read by its mirrors.
     // Only while the org has one (`complete`, `productSearchFieldComplete`): that branch reads documents, not keys.

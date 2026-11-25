@@ -106,6 +106,8 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
       ...l,
       productName: productMap.get(l.productId)?.name || '',
       productSku: productMap.get(l.productId)?.sku || '',
+      // FR-33.2: the form's line filter reads the barcode too.
+      productBarcode: productMap.get(l.productId)?.barcode || '',
     }))
 
     return { inventoryCount: { ...doc, lines: withoutCost(user, lines) } }

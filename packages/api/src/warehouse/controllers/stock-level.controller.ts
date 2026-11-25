@@ -74,7 +74,8 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
 
     const [products, warehouses] = await Promise.all([
       // A row takes the article's name and SKU and the warehouse's name: the articles were read whole (FR-30.7).
-      productIds.size > 0 ? r.products.findMany({ orgId, id: { $in: [...productIds] } } as any, undefined, { select: lean ? ['sku', 'name', 'unit'] : ['sku', 'name'] }) : [],
+      // The count form's lean read takes the barcode too: its line filter reads name, SKU and barcode (FR-33.2).
+      productIds.size > 0 ? r.products.findMany({ orgId, id: { $in: [...productIds] } } as any, undefined, { select: lean ? ['sku', 'name', 'unit', 'barcode'] : ['sku', 'name'] }) : [],
       warehouseIds.size > 0 ? r.warehouses.findMany({ orgId, id: { $in: [...warehouseIds] } } as any, undefined, { select: ['name'] }) : [],
     ])
 
@@ -90,7 +91,7 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
         ...redactStockCost(grant, sl as any),
         productSku: product?.sku || '',
         productName: product?.name || '',
-        ...(lean ? { productUnit: product?.unit || '' } : {}),
+        ...(lean ? { productUnit: product?.unit || '', productBarcode: product?.barcode || '' } : {}),
         warehouseName: warehouse?.name || '',
       }
     })

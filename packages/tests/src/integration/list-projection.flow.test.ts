@@ -258,7 +258,7 @@ describe('FR-30.8: a page has a ceiling', () => {
     expect('truncated' in count.json).toBe(false)
     // Narrow: what the form takes of a level, and nothing of its history.
     expect(keysOf(count.json.stockLevels).filter((k) => ['reservedQuantity', 'availableQuantity', 'createdAt', 'updatedAt'].includes(k))).toEqual([])
-    expect(count.json.stockLevels[0]).toMatchObject({ productName: expect.any(String), productSku: expect.any(String), productUnit: 'бр.', avgCost: 1.5 })
+    expect(count.json.stockLevels[0]).toMatchObject({ productName: expect.any(String), productSku: expect.any(String), productUnit: 'бр.', productBarcode: expect.any(String), avgCost: 1.5 })
   })
 
   it('a sort only an aggregation serves is cut as well', async () => {

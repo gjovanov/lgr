@@ -7,7 +7,7 @@ const BASE = '/warehouse/stock-level'
 /**
  * A stock level as the list answers it: the level, with its article's SKU and name and its warehouse's name. A role
  * without the cost figures gets no average cost (FR-27.6). The count form's lean read (`fields: 'count'`) answers
- * only the product, the warehouse, the quantity and the cost, with the names.
+ * only the product, the warehouse, the quantity and the cost, with the names, the unit and the barcode.
  */
 export interface StockLevel {
   _id?: string
@@ -20,6 +20,8 @@ export interface StockLevel {
   productSku: string
   productName: string
   productUnit?: string
+  /** The lean read's only (FR-33.2: the count's line filter reads it). */
+  productBarcode?: string
   warehouseName: string
 }
 
