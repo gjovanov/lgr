@@ -1,8 +1,9 @@
 import type { RepositoryRegistry } from 'dal'
-import type { IAccount, IJournalEntry } from 'dal/entities'
+import type { IAccount, IFiscalYear, IJournalEntry } from 'dal/entities'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
-import { fiscalRangeContains, fiscalRangeFilter } from '../utils/fiscal-range.js'
+import { fiscalRangeFilter } from '../utils/fiscal-range.js'
+import { isDuplicateKey } from './transaction.js'
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -59,26 +60,49 @@ export async function ensureFiscalPeriod(orgId: string, date: Date, repos?: Repo
   // 3. Compute fiscal year boundaries
   const { startDate, endDate, name } = computeFiscalYearRange(date, fiscalYearStart)
 
-  // 4. Find or create fiscal year. A year typed in by hand may not carry these exact timestamps (its
-  // form sends UTC midnights, this computes the server's): one that holds the date and has no periods
-  // yet is the one. A second year over the same dates is refused by the unique start, or overlaps it.
-  let fiscalYear = await r.fiscalYears.findOne({ orgId, startDate, endDate } as any)
-  if (!fiscalYear) {
-    const typed = await r.fiscalYears.findOne({ orgId, ...fiscalRangeFilter(date) } as any)
-    if (typed && !(await r.fiscalPeriods.findOne({ orgId, fiscalYearId: typed.id } as any))) fiscalYear = typed
-  }
-  if (!fiscalYear) {
-    fiscalYear = await r.fiscalYears.create({ orgId, name, startDate, endDate, status: 'open' } as any)
+  // 4. Find or create fiscal year
+  const fiscalYear = await fiscalYearFor(r, orgId, date, { startDate, endDate, name })
+
+  // 5. Its 12 monthly periods. ⚠ A new org's first bookings come at once (a sale posts its invoice, its stock
+  // movement and its payment side by side), and each found no period in step 1. Until 2026-11-25 each inserted all
+  // twelve: all but one met E11000 on the periods' unique index, and the payment's entry waited for the postings
+  // drain. Now each period is made by whoever reaches it first and the others land on it; one a stopped run never
+  // made is made now.
+  for (const period of generateMonthlyPeriods(fiscalYear.id, orgId, startDate)) {
+    await r.fiscalPeriods.create(period as any).catch(madeMeanwhile)
   }
 
-  // 5. Generate and insert all 12 monthly periods
-  const periods = generateMonthlyPeriods(fiscalYear.id, orgId, startDate)
-  const inserted = await r.fiscalPeriods.createMany(periods as any)
-
-  // 6. Find and return the period that matches the original date
-  const matching = inserted.find((p) => fiscalRangeContains(p, date))
+  // 6. The year's period that holds the date, whoever made it
+  const matching = await r.fiscalPeriods.findOne({ orgId, fiscalYearId: fiscalYear.id, ...fiscalRangeFilter(date) })
   if (!matching) throw new Error(`Failed to find matching period for date ${date.toISOString()}`)
   return matching.id
+}
+
+/** A duplicate key: another booking made the row a moment ago, and that row is the one. Anything else is thrown. */
+function madeMeanwhile(e: unknown): null {
+  if (isDuplicateKey(e)) return null
+  throw e
+}
+
+/**
+ * The fiscal year that holds `date`. A year typed in by hand may not carry the computed timestamps (its form sends UTC
+ * midnights, this computes the server's): one that holds the date and has no periods yet is the one. A second year
+ * over the same dates is refused by the unique start, or overlaps it: when the start is refused, the year that holds
+ * it was made a moment ago by another booking, and is the one.
+ */
+async function fiscalYearFor(
+  r: RepositoryRegistry, orgId: string, date: Date, computed: { startDate: Date; endDate: Date; name: string },
+): Promise<IFiscalYear> {
+  const { startDate, endDate, name } = computed
+  const exact = await r.fiscalYears.findOne({ orgId, startDate, endDate } as any)
+  if (exact) return exact
+  const typed = await r.fiscalYears.findOne({ orgId, ...fiscalRangeFilter(date) } as any)
+  if (typed && !(await r.fiscalPeriods.findOne({ orgId, fiscalYearId: typed.id } as any))) return typed
+  const made = await r.fiscalYears.create({ orgId, name, startDate, endDate, status: 'open' } as any).catch(madeMeanwhile)
+  if (made) return made
+  const theirs = await r.fiscalYears.findOne({ orgId, startDate })
+  if (!theirs) throw new Error(`Failed to find the fiscal year starting ${startDate.toISOString()}`)
+  return theirs
 }
 
 /** The entry is not in a state to do this, or names what it cannot: a person can be told why. */

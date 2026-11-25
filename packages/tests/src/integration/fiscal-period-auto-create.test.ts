@@ -189,4 +189,48 @@ describe('ensureFiscalPeriod', () => {
     expect(period).toBeDefined()
     expect(period!.name).toBe('June')
   })
+
+  // A new org's first sale posts its invoice, its stock movement and its payment at once, and each asks for the
+  // period. Until 2026-11-25 each read "no period", and all but one met E11000 on the periods' (or the year's) unique
+  // index: the payment's entry waited 30 s for the postings drain (CI: cash-invoice-refunds.flow).
+  it('gives every concurrent first booking of a year the same period, and makes the year once', async () => {
+    const org = await createTestOrg({ slug: 'fp-auto-race', settings: { fiscalYearStart: 1 } as any })
+    const orgId = String(org._id)
+    const dates = ['2026-11-25', '2026-11-25T10:00:00Z', '2026-11-03', '2026-11-30T18:00:00Z']
+
+    const ids = await Promise.all(Array.from({ length: 12 }, (_, i) => ensureFiscalPeriod(orgId, new Date(dates[i % dates.length]))))
+
+    expect(new Set(ids).size).toBe(1)
+    expect(await FiscalYear.countDocuments({ orgId })).toBe(1)
+    const periods = await FiscalPeriod.find({ orgId }).sort({ number: 1 }).exec()
+    expect(periods.map(p => p.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+    expect(periods.find(p => String(p._id) === ids[0])!.name).toBe('November')
+  })
+
+  it('gives concurrent bookings in different months of a new year each its own month, from one set of periods', async () => {
+    const org = await createTestOrg({ slug: 'fp-auto-race-months', settings: { fiscalYearStart: 1 } as any })
+    const orgId = String(org._id)
+    const months = ['2026-01-15', '2026-06-15', '2026-11-15', '2026-12-31T18:00:00Z']
+
+    const ids = await Promise.all(months.concat(months).map(d => ensureFiscalPeriod(orgId, new Date(d))))
+
+    const names = await Promise.all(ids.map(async id => (await FiscalPeriod.findById(id).exec())!.name))
+    expect(names).toEqual(['January', 'June', 'November', 'December', 'January', 'June', 'November', 'December'])
+    expect(await FiscalYear.countDocuments({ orgId })).toBe(1)
+    expect(await FiscalPeriod.countDocuments({ orgId })).toBe(12)
+  })
+
+  it('completes a year whose periods were left part-made', async () => {
+    const org = await createTestOrg({ slug: 'fp-auto-partial', settings: { fiscalYearStart: 1 } as any })
+    const orgId = String(org._id)
+    // A run that stopped after March: the year and three periods, and nothing for the rest of it.
+    await ensureFiscalPeriod(orgId, new Date('2026-02-15'))
+    await FiscalPeriod.deleteMany({ orgId, number: { $gt: 3 } })
+
+    const id = await ensureFiscalPeriod(orgId, new Date('2026-09-15'))
+
+    expect((await FiscalPeriod.findById(id).exec())!.name).toBe('September')
+    expect(await FiscalYear.countDocuments({ orgId })).toBe(1)
+    expect(await FiscalPeriod.countDocuments({ orgId })).toBe(12)
+  })
 })

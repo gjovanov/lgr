@@ -18,8 +18,3 @@ function startOfDay(date: Date): Date {
 export function fiscalRangeFilter(date: Date) {
   return { startDate: { $lte: date }, endDate: { $gte: startOfDay(date) } }
 }
-
-/** The same test as `fiscalRangeFilter`, for rows already in memory. */
-export function fiscalRangeContains(range: { startDate: Date; endDate: Date }, date: Date): boolean {
-  return range.startDate <= date && range.endDate >= startOfDay(date)
-}
