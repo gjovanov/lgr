@@ -37,10 +37,15 @@ const FIGURE = /(?:\{\{[^}]*|:[\w-]+="[^"]*|key:\s*'|#item\.)\b(purchasePrice|st
 /** The cost rule itself: `seesCosts`, `products.costs` (in a `can()`, a `v-cap` or a `data-cap`), a slot's level, the supplier prices'. */
 const CONSULTS = [/\bseesCosts\b/, /products\.costs/, /\bcapOfTier\b/, /\bcanSeeSupplierPrices\b/]
 
-/** The books' own figures: Accounting's cost of a fixed asset follows the accounting features, not the price levels. */
+/**
+ * The books' own figures follow the accounting features, not the price levels: Accounting's cost of a fixed asset, and
+ * a goods group's unit cost in the books (FR-25 R3: the accountant's override and the replayed average beside it, which
+ * the group's journal lines on 304 already show to whoever reads the ledger).
+ */
 const BOOKS = new Set([
   'web/src/modules/accounting/views/accounting/FixedAssetFormView.vue',
   'web/src/modules/accounting/views/accounting/FixedAssetsView.vue',
+  'web/src/modules/accounting/views/accounting/GroupCostsView.vue',
 ])
 
 const template = (text: string) => text.split('<script')[0]
