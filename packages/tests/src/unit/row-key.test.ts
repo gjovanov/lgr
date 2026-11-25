@@ -38,7 +38,9 @@ describe('a line’s key (FR-31.12)', () => {
     const grids: [string, RegExp][] = [
       ['web/src/modules/invoicing/components/document-form/DocumentLineTable.vue', /v-for="\(line, idx\) in form\.lines" :key="rowKey\(line\)"/],
       ['web/src/modules/inventory/views/MovementFormView.vue', /v-for="\(line, idx\) in form\.lines" :key="rowKey\(line\)"/],
-      ['web/src/modules/inventory/views/InventoryCountFormView.vue', /v-for="\(line, idx\) in form\.lines" :key="rowKey\(line\)"/],
+      // FR-30.17 / FR-33.1: the count's lines are a data table keyed by their article (a count holds each article once),
+      // so a typed quantity stays with its article through a filter, a toggle or a scroll.
+      ['web/src/modules/inventory/views/InventoryCountFormView.vue', /item-value="productId"/],
       ['web/src/modules/inventory/views/PriceListFormView.vue', /v-for="\(item, idx\) in form\.items" :key="rowKey\(item\)"/],
       ['web/src/modules/inventory/views/ProductFormView.vue', /v-for="\(tier, i\) in priceTiers" :key="rowKey\(tier\)"/],
       ['web/src/modules/accounting/views/accounting/JournalEntryFormView.vue', /v-for="\(line, idx\) in form\.lines" :key="rowKey\(line\)"/],

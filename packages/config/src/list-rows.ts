@@ -25,7 +25,7 @@ export const LIST_FIELDS = 'list'
 
 /**
  * The stock levels' declared lean "all" (FR-30.8, §2.6): every level of a warehouse, past the ceiling, as the count
- * form needs them, each with only the article's id, name, SKU and unit, its quantity and its average cost.
+ * form needs them, each with only the article's id, name, SKU, barcode and unit, its quantity and its average cost.
  */
 export const COUNT_FIELDS = 'count'
 

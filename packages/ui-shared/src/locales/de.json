@@ -2858,6 +2858,12 @@
     "addItem": "Position hinzufügen",
     "deletePriceListConfirm": "Sind Sie sicher, dass Sie diese Preisliste löschen möchten?",
     "countItems": "Zählpositionen",
+    "countSearch": "Zeilen nach Name, SKU oder Barcode filtern",
+    "countFilter": {
+      "all": "Alle",
+      "notCounted": "Noch nicht gezählt",
+      "difference": "Mit Differenz"
+    },
     "systemQty": "System-Menge",
     "countedQty": "Gezählte Menge",
     "variance": "Abweichung",

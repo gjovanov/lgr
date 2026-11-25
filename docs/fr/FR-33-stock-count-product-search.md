@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Specified 2026-11-24. Nothing built. The defaults in §9 stand unless the owner answers otherwise on the issue. |
+| **Status** | Specified 2026-11-24. Slice A (FR-33.1 to .3) built, §11. The defaults in §9 stand unless the owner answers otherwise on the issue. |
 | **Builds on** | FR-28 (one product search: the hit row, Details, the dialog that is the Products list, "Show all N results", F4, what follows a pick), FR-30.17 (the count form at 25 000 levels: built in #848 but never on master, §1.3), FR-22.28 (the receipt form, for which the line grid's keyboard, `useGridNavigation`, moved to ui-shared), FR-22.55 (Enter adds the exact barcode or SKU match, at the till and in the back-office cash sale), FR-31 (lines keyed by identity, `DecimalField`, the unsaved-edits guard, refusals that stay, the latest question wins), FR-27 (the `inventory-counts.*` capabilities, `IMPLIES`, the server prices a count: FR-27.11.C.4), FR-04 (a count and its adjustment movement) |
 | **Touches** | `web/src/modules/inventory` (`InventoryCountFormView.vue`, its API module), `ui-shared` (`ProductSearch`, `ProductPickerDialog`, `product-hit`, locales), `web/src/modules/invoicing` (`ProductLineDescription`'s Enter), `config` (`access/levels.ts`, one import-pure text matcher), `api/warehouse` (`inventory-count.controller.ts`, a product code lookup), `api/invoicing` (`pos.controller.ts`: its lookup moves out), `services` (`inventory-count-pricing.ts`, the code lookup), `tests`, `e2e` |
 | **Tracking** | [gjovanov/lgr#933](https://github.com/gjovanov/lgr/issues/933) |
@@ -424,4 +424,15 @@ The demo organization is small, so production proves the behaviour and the fixtu
 
 ## 11. Build log
 
-Nothing built yet.
+### Slice A (FR-33.1 to .3), 2026-11-25
+
+**What was built.**
+- **FR-30.17 at the moved path (FR-33.1).** #848's change (`a34e3d30`), ported by hand to `web/src/modules/inventory/views/InventoryCountFormView.vue`: its typed API (`listStockLevels`, `getInventoryCount`) and `DecimalField` kept. The lines are a plain `v-data-table` up to 200 and a `v-data-table-virtual` above, both keyed by the article (`item-value="productId"`). The Counted column is keyed `qty`, so a keystroke does not make the table read every row again. What Save sends is unchanged.
+- **The line filter (FR-33.2).** Name, SKU or barcode, every word, in any case, Latin and Cyrillic look-alikes as one letter. *Not counted yet* and *With a difference*, and "shown / total".
+  - The look-alike pairs moved from `services/biz/search.utils.ts` to `config/search-text.ts` (import-pure): `HOMOGLYPH_PAIRS`, `searchKeywords`, `homoglyphPattern` (the server's letter classes) and `searchTextMatcher` (the form's fold). The server's product filter and the form read the same pairs.
+  - The lean answer of `fields=count` carries `productBarcode`, and so does `GET /inventory-count/:id`'s line, so an edit page filters by barcode too. Both are added keys; nothing an answer had changed.
+- **FR-30's record (FR-33.3).** FR-30's status line lists slice E as built, and its §11 has slice E.
+
+**Not in this slice.** The entry line that stays in view under the rows (§2.5) is B-UI's: slice A adds no row to the table, so `inventory-count.spec` runs unmodified.
+
+**Tests.** `unit/search-text.test.ts` (the pairs both ways, the words, the case, and the form's matcher against the server's two product filters, the five-field one and the joined field, on a fixed word list); `e2e/count-form-scale.spec.ts` (#848's spec: the three budgets, the filter by name and SKU, a typed quantity through the filters, both toggles' counts, the saved payload; and now a name typed with a Latin look-alike and a barcode); `unit/row-key.test.ts` (the count's rows keyed by the article); `integration/list-projection.flow.test.ts` (the barcode on the lean answer). `inventory-count.spec` unmodified.

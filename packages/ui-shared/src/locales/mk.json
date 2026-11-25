@@ -2858,6 +2858,12 @@
     "addItem": "Додади Ставка",
     "deletePriceListConfirm": "Дали сте сигурни дека сакате да го избришете овој ценовник?",
     "countItems": "Ставки за Попис",
+    "countSearch": "Филтер по име, шифра или баркод",
+    "countFilter": {
+      "all": "Сите",
+      "notCounted": "Непребројани",
+      "difference": "Со разлика"
+    },
     "systemQty": "Системска Кол.",
     "countedQty": "Попишана Кол.",
     "variance": "Разлика",

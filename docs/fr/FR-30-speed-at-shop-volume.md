@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Specified 2026-11-16. Slices A (FR-30.1 to .4), B (FR-30.6 to .10), C (FR-30.11 to .13), D (FR-30.14 to .16), F (FR-30.19, .20) and G (FR-30.21 to .27) built, §11. Slice E (FR-30.17) is not on master: #848 merged into a branch whose own pull request had already merged, and [FR-33](FR-33-stock-count-product-search.md) slice A builds it again. The defaults in §9 stand unless the owner answers otherwise on the issue. |
+| **Status** | Specified 2026-11-16. Slices A (FR-30.1 to .4), B (FR-30.6 to .10), C (FR-30.11 to .13), D (FR-30.14 to .16), E (FR-30.17), F (FR-30.19, .20) and G (FR-30.21 to .27) built, §11. Slice E was built by [FR-33](FR-33-stock-count-product-search.md) slice A: #848 had merged into a branch whose own pull request had already merged, and never reached master. The defaults in §9 stand unless the owner answers otherwise on the issue. |
 | **Builds on** | FR-05 and FR-22 (`ListScaffold`, `usePaginatedTable`, grid state in the URL, the click-budget walks), FR-28 (the product search, its explain test and request-count test), FR-06 (the reports registry), FR-24 (one SPA, `scripts/check-web-bundle.ts`), the lowered search mirrors (`db/src/plugins/lowered-fields.plugin.ts`) |
 | **Touches** | `db` (indexes on `Product`, `Invoice`, `StockLevel`, `StockMovement`; the lowered-fields plugin), `packages/migrations` (dropping indexes), `dal-mongo` and `services` (pagination, search, the stock-levels report, the contact ledger, dashboards), `invoicing-api` and `warehouse-api` (list endpoints), `reporting` (PDF), `ui-shared` (the list engine, the icon set, locales), `invoicing-ui` and `inventory-ui` (document open, the count form), `portal-api` (static files, two small endpoints), `packages/server` (the on-prem master's static files) |
 | **Tracking** | [gjovanov/lgr#795](https://github.com/gjovanov/lgr/issues/795) |
@@ -497,6 +497,28 @@ The demo organization is small, so production proves that nothing changed, and t
 | articles read by the joins | one per level | one per row kept (at most the cap + 1) |
 
 **Tests.** `integration/stock-levels-report.flow.test.ts`: the rows, totals and meta equal the old pipeline's (frozen in `helpers/stock-levels-report-legacy.ts`) for twelve parameter sets (none, zero rows, rolled up, below minimum, a warehouse, an article, a category with descendants, combinations) in two outputs; the joins read at most the cap + 1 articles; a category narrows the first stage; the ranking aggregated once for two forms; the cache's lifetime and a failed read not kept; the summary's first stage and its figures with voided and cancelled documents beside them; the stock value read once a minute.
+
+### Slice E (FR-30.17), built by FR-33 slice A, 2026-11-25
+
+First built on 2026-11-17 in #848 (`a34e3d30`), which merged into a stale stacked branch and never reached master. [FR-33](FR-33-stock-count-product-search.md) slice A (#933) ported it to the moved file; FR-33 §11 has the rest.
+
+**What was built** (`web/src/modules/inventory/views/InventoryCountFormView.vue`).
+- The lines are a virtual table above 200 rows (`v-data-table-virtual`: only the rows in view are drawn), a plain table of all rows below, both keyed by the article. The count's levels come through the stock levels' lean "all" (`fields=count`, slice B): the article's id, name, SKU, barcode and unit, its quantity and average cost.
+- A line filter (name, SKU or barcode, every word, Latin and Cyrillic look-alikes as one letter, FR-33.2), and two toggles: "Not counted yet" (no quantity typed for the article since the form opened; on a saved count, the lines that differ from the system count are taken as counted) and "With a difference". The shown and total line counts beside them.
+- The counted-quantity column is keyed `qty`, not `countedQuantity`: the table reads every row's value of each column's key, and a typed quantity made it read all the rows again on each keystroke (#848 measured 167 ms a keystroke at 25 000 rows, 33 ms after).
+- What Save sends is what the plain table sent (the same keys, every line).
+
+**Measured by #848** (25 000 levels given to the browser, a developer laptop, Chromium at 1280×720).
+
+| | Before (the audit, 23 040 levels) | After (25 000) | Budget |
+|---|---|---|---|
+| First rows after "Load products" | 190 s | 414 ms | 3 s |
+| DOM nodes | 438 104 | 706 | 10 000 |
+| A keystroke painted | 7.3 s | 33 ms (median of 5, Playwright's round trip included) | 100 ms |
+
+`e2e/count-form-scale.spec.ts` holds the three budgets on every nightly run. FR-30.18 (lines held by the server) is not needed: the budget is met in the browser.
+
+**Tests.** `e2e/count-form-scale.spec.ts`: the three budgets, the filter by name, SKU, barcode and a look-alike, a quantity typed into a found row that stays with its article through the filters, both toggles' counts, and the saved payload (25 000 lines, the plain table's keys, the typed figures). `e2e/inventory-count.spec.ts` unchanged.
 
 ### Slice F (FR-30.19, .20), 2026-11-17
 
