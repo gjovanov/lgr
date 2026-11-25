@@ -44,7 +44,9 @@ describe('deploy-prod.sh builds from a clean worktree of the commit (#926)', () 
     const prune = code.indexOf('git -C "$SRC" worktree prune\n')
     expect(prune).toBeGreaterThan(-1)
     expect(prune).toBeLessThan(code.indexOf('worktree add'))
-    expect(SCRIPT).not.toMatch(/git(\s+-C\s+\S+)?\s+archive/)
+    // The script's own comment says why not `git archive`: look at the commands only, comments stripped.
+    const commands = code.split('\n').map(l => l.replace(/\s+#\s.*$/, '')).join('\n')
+    expect(commands).not.toMatch(/git(\s+-C\s+\S+)?\s+archive/)
   })
 
   it('has ONE EXIT trap, which reports a failure as before and removes the worktree; INT and TERM exit through it', () => {
