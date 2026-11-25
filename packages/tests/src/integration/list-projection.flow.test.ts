@@ -296,7 +296,7 @@ describe('FR-30.10: a document names its lines\' articles', () => {
     expect(json.invoice.lines[0]).toMatchObject({ description: 'Болт DIN 933 М8Х25 ZN поцинкован 0', quantity: 1, unit: 'бр.' })
   })
 
-  it('a stock count's read carries each line's article: name, SKU, barcode and unit (FR-33.2, FR-33.11)', async () => {
+  it("a stock count's read carries each line's article: name, SKU, barcode and unit (FR-33.2, FR-33.11)", async () => {
     const countId = oid()
     await InventoryCount.collection.insertOne({
       _id: countId, orgId: new mongoose.Types.ObjectId(orgId), countNumber: 'IC-2026-00001', warehouseId: warehouse, date: new Date(),
