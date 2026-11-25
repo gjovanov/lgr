@@ -89,7 +89,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { getProduct } from '../api/products'
 import { setProductSearchMenuOpen } from 'ui-shared/composables/useProductSearchMenu'
-import { latestOnly } from 'ui-shared/composables/latest-only'
+import { useFieldSearch } from 'ui-shared/composables/field-search'
 import {
   SEARCH_DEBOUNCE_MS, SEARCH_MIN_CHARS, hitPriceText, hitStockText, hitSubtitle, loadHitStock, searchProductHits, type HitStock,
 } from 'ui-shared/composables/product-hit'
@@ -145,17 +145,40 @@ const products = ref<Product[]>([])
 const total = ref(0)
 const hitStock = ref<Record<string, HitStock>>({})
 const stockLoading = ref(false)
-const loading = ref(false)
 const linkedProductName = ref('')
 const searchText = ref('')
 const overlayStyle = ref<Record<string, string>>({})
-let debounceTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * FR-31.4: only the answer to the latest search reaches the list. A slow answer to an earlier word used to replace
+ * the matches of what the field holds, with its first row highlighted: Enter then put that article on the line.
+ * An answer to a text the field no longer holds is dropped too, and Enter takes only an answer to what the field
+ * holds (FR-33.12, `onKeydown`).
+ */
+const orgUrl = () => `/org/${appStore.currentOrg?.id}`
+const field = useFieldSearch({
+  search: async (signal, query: string) => {
+    if (!appStore.currentOrg?.id) throw new Error('No organization to search in')
+    return searchProductHits(orgUrl(), query, signal)
+  },
+  onAnswer: (found, query) => {
+    products.value = found.products
+    total.value = found.total
+    void loadStockOfHits(orgUrl(), query)
+    highlightedIndex.value = products.value.length || props.allowCreate ? 0 : -1
+    menuOpen.value = products.value.length > 0 || (!!props.allowCreate && query.length >= 2)
+    if (menuOpen.value) nextTick(positionOverlay)
+  },
+  minChars: SEARCH_MIN_CHARS,
+  debounceMs: SEARCH_DEBOUNCE_MS,
+})
+const loading = field.loading
 
 /**
  * The catalog has answered for exactly what is typed now. Until then the rows are the previous
  * query's, and offering to create the article would invite creating one that exists.
  */
-const answeredFor = ref('')
+const answeredFor = field.answeredFor
 
 /** The typed text names no article the search found: offer to create it, as the last row. */
 const offerCreate = computed(() => {
@@ -224,46 +247,11 @@ function hitLine(p: Product): string {
 function onInput(val: string) {
   searchText.value = val ?? ''
   emit('update:description', searchText.value)
-  if (debounceTimer) clearTimeout(debounceTimer)
-  if (searchText.value.length < SEARCH_MIN_CHARS) {
-    // A search still on its way answers a question nobody asks any more: it must not reopen the list.
-    search.cancel()
-    loading.value = false
-    products.value = []
-    total.value = 0
-    menuOpen.value = false
-    return
-  }
-  debounceTimer = setTimeout(() => fetchProducts(searchText.value), SEARCH_DEBOUNCE_MS)
-}
-
-/**
- * FR-31.4: only the answer to the latest search reaches the list. A slow answer to an earlier word used to replace
- * the matches of what the field holds, with its first row highlighted: Enter then put that article on the line.
- */
-const search = latestOnly((signal, orgUrl: string, query: string) => searchProductHits(orgUrl, query, signal))
-
-async function fetchProducts(query: string) {
-  const orgId = appStore.currentOrg?.id
-  if (!orgId) return
-  loading.value = true
-  try {
-    const answer = await search(`/org/${orgId}`, query)
-    // A newer search owns the list and the spinner.
-    if (!answer.latest) return
-    const found = answer.value
-    products.value = found.products
-    total.value = found.total
-    answeredFor.value = query.trim()
-    void loadStockOfHits(`/org/${orgId}`, query.trim())
-    highlightedIndex.value = products.value.length || props.allowCreate ? 0 : -1
-    menuOpen.value = products.value.length > 0 || (!!props.allowCreate && query.trim().length >= 2)
-    if (menuOpen.value) nextTick(positionOverlay)
-    loading.value = false
-  } catch {
-    // The latest search failed: the list keeps what it shows.
-    loading.value = false
-  }
+  if (field.input(searchText.value)) return
+  // A search still on its way answers a question nobody asks any more: it must not reopen the list.
+  products.value = []
+  total.value = 0
+  menuOpen.value = false
 }
 
 /** The stock of the hits just shown: a second, small call. A newer search leaves an older answer unused. */
@@ -320,19 +308,38 @@ function onKeydown(e: KeyboardEvent) {
     highlightedIndex.value = Math.max(0, highlightedIndex.value - 1)
     scrollHighlightedIntoView()
   } else if (e.key === 'Enter') {
+    // FR-33.12: the rows on screen answer an earlier text while the answer to what was typed is on its way. Enter
+    // waits for that answer and takes its first row; it never takes a row of the earlier text's list. A search that
+    // failed leaves nothing on its way, and Enter then takes nothing.
+    const text = searchText.value
+    if (field.unanswered(text)) {
+      if (!field.waiting.value) return
+      e.preventDefault()
+      e.stopPropagation()
+      void field.enter(text).then((took) => {
+        if (took && searchText.value === text) takeHighlighted()
+      })
+      return
+    }
     if (!menuOpen.value || !rowCount.value) return
     e.preventDefault()
     e.stopPropagation()
-    if (showAll.value && highlightedIndex.value === products.value.length) { showAllResults(); return }
-    if (offerCreate.value && highlightedIndex.value === createIndex.value) { createProduct(); return }
-    const p = products.value[highlightedIndex.value]
-    if (p) selectProduct(p)
+    takeHighlighted()
   } else if (e.key === 'Escape') {
     if (!menuOpen.value) return
     e.preventDefault()
     e.stopPropagation()
     menuOpen.value = false
   }
+}
+
+/** Enter on the open list: the highlighted row (a fresh answer highlights its first). */
+function takeHighlighted() {
+  if (!menuOpen.value || !rowCount.value) return
+  if (showAll.value && highlightedIndex.value === products.value.length) { showAllResults(); return }
+  if (offerCreate.value && highlightedIndex.value === createIndex.value) { createProduct(); return }
+  const p = products.value[highlightedIndex.value]
+  if (p) selectProduct(p)
 }
 
 function selectProduct(p: Product) {
@@ -368,9 +375,14 @@ watch(() => props.description, (d) => { searchText.value = d ?? '' })
 // Tell the line-table grid navigation to stop stealing ↑/↓/Enter while our menu is open.
 // flush:'sync' so the flag flips in the same tick menuOpen does — no window where the
 // menu is visibly open but the flag hasn't been set yet. Also (un)wire reposition listeners.
+// FR-33.12: also while an answer to what was typed is on its way, so that Enter in that pause is the field's (it waits
+// for the answer) and not the grid's, which would move to the next row before the list is even open.
+const holdsKeys = computed(() => menuOpen.value || field.waiting.value)
+watch(holdsKeys, (held, was) => {
+  if (held !== was) setProductSearchMenuOpen(held)
+}, { flush: 'sync' })
 watch(menuOpen, (open, was) => {
   if (open === was) return
-  setProductSearchMenuOpen(open)
   if (open) {
     window.addEventListener('scroll', positionOverlay, true)
     window.addEventListener('resize', positionOverlay)
@@ -385,11 +397,12 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  if (debounceTimer) clearTimeout(debounceTimer)
-  search.cancel()
+  field.cancel()
   window.removeEventListener('scroll', positionOverlay, true)
   window.removeEventListener('resize', positionOverlay)
-  if (menuOpen.value) setProductSearchMenuOpen(false) // don't leak the count on unmount
+  // Don't leak the count on unmount. `cancel()` lowers `waiting`, and the sync watcher has given that share back
+  // already: give back only what is still held (an open list).
+  if (holdsKeys.value) setProductSearchMenuOpen(false)
 })
 </script>
 
