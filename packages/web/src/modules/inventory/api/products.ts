@@ -149,6 +149,15 @@ export async function listProducts(params: ProductListParams, signal?: AbortSign
   return data
 }
 
+/**
+ * FR-33.11: the article a typed or scanned code names (`GET /lookup?code=`, FR-22.55's rule: the exact barcode, else
+ * the exact SKU, else the one active article the search finds). `product: null` when it names none or several.
+ */
+export async function lookupProductCode(code: string): Promise<{ product: Product | null; matchedBy: 'barcode' | 'sku' | 'search' | null }> {
+  const { data } = await httpClient.get(orgPath(`${BASE}/lookup`), { params: { code } })
+  return data
+}
+
 /** `id` is put in the path as given: encode one that did not come from a record. */
 export async function getProduct(id: string): Promise<{ product: Product }> {
   const { data } = await httpClient.get(orgPath(`${BASE}/${id}`))

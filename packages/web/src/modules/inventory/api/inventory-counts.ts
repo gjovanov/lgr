@@ -12,10 +12,11 @@ export interface InventoryCountLine {
   /** Left out for a role without the cost figures (FR-27.11.C.1). */
   varianceCost?: number
   notes?: string
-  /** The one read (`GET /:id`) adds the article's name, SKU and barcode. */
+  /** The one read (`GET /:id`) adds the article's name, SKU, barcode and unit. */
   productName?: string
   productSku?: string
   productBarcode?: string
+  productUnit?: string
 }
 
 /** A count as the routes answer it (the repository's entity). Its number is `countNumber`: only the list adds `number`. */

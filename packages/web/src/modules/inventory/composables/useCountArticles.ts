@@ -93,11 +93,17 @@ export function useCountArticles(opts: CountArticlesOptions) {
 }
 
 /**
- * A saved count's lines carry no unit, and say nothing of a level the warehouse lacks. Both are read once: the
- * warehouse's lean levels (the read "Load products" makes) give the units and the articles it keeps, and the
- * catalogue the units of the others. Context only: a refusal leaves them blank.
+ * Which of a count's articles the warehouse keeps no level of ("not stocked here"), from the warehouse's lean levels
+ * (the read "Load products" makes), with the units those levels carry. A saved count's lines carry their unit
+ * (`GET /inventory-count/:id`, FR-33.11), so the catalogue is read only for the articles whose unit is still unknown
+ * and that the warehouse has no level of: a draft restored on this device, whose lines kept no unit. Context only: a
+ * refusal leaves them blank.
  */
-export async function describeCountLines(warehouseId: string, productIds: readonly string[]): Promise<{ units: Map<string, string>; notStocked: string[] }> {
+export async function describeCountLines(
+  warehouseId: string,
+  productIds: readonly string[],
+  knownUnits: ReadonlyMap<string, string> = new Map(),
+): Promise<{ units: Map<string, string>; notStocked: string[] }> {
   const units = new Map<string, string>()
   const notStocked: string[] = []
   try {
@@ -108,7 +114,8 @@ export async function describeCountLines(warehouseId: string, productIds: readon
       units.set(String(s.productId), s.productUnit || '')
     }
     for (const id of productIds) if (!kept.has(id)) notStocked.push(id)
-    for (const part of chunks(notStocked, 100)) {
+    const unknown = notStocked.filter((id) => !knownUnits.has(id))
+    for (const part of chunks(unknown, 100)) {
       const { products } = await listProducts({ ids: part.join(','), size: part.length })
       for (const p of products) units.set(String(p._id), p.unit || '')
     }
