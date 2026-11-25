@@ -299,6 +299,10 @@ Indexes: `{orgId, ledger, date}`, `{orgId, 'lines.analyticId', date}`, `{orgId, 
 
 Moved to R4 (§9, "R3 after R7"): until purchases post in shadow, the shadow's cost of sales is the books' own group average.
 
+The accountant (2026-11-25): the cost is the group's daily average, as until March, with an option to override it for
+write-offs and other losses the average does not show. The override is `GroupCostOverride` (§9, "R3: the accountant's
+override of a group's average"), kept in the home and applied by the replay.
+
 ### 3.6 `ProductGroupMap` (new, in the org that holds the product)
 
 ```ts
@@ -1044,7 +1048,7 @@ Built: `PostingRule`, its seed, the posting of one document, the books' cost of 
 
 **Open, for the accountant:**
 
-1. In what order does PlusMinus cost a day's documents: does a purchase booked on the day of a sale count in that sale's cost? The batch says no. The cost spread on filed months will show how far that is from the books.
+1. In what order does PlusMinus cost a day's documents: does a purchase booked on the day of a sale count in that sale's cost? The batch says no. The cost spread on filed months will show how far that is from the books. **Answered 2026-11-25:** the daily average, as until March, with an override for write-offs and losses (below, "R3: the accountant's override of a group's average").
 2. Is `D501 K411` booked from the document's own cash at issue (`ПЛАЩАНЕ` `1`, `paidCash`) or from what the till took? The batch takes LGR's cash payments at the counter on the day.
 3. A group sold before the books ever held it: what does PlusMinus cost it at?
 4. An invoice issued for a till sale: is it booked as a `-ФЕ` with its own cost, and does the till's `КП` month leave it out? Until §12, question 2 is answered, it waits (`till_sale_invoice`).
@@ -1110,6 +1114,49 @@ read the same comparison and show the amounts.
   store's). Each row is equal, or differs as the gate names it, or is on one side only.
 - Until `post-shadow-sales.ts --execute` writes a month, its shadow side is empty: every books document is the books'
   alone, and the dry run's self-check is the comparison.
+
+### R3: the accountant's override of a group's average, as built
+
+**The accountant's answer (2026-11-25)** to question 1 of slice 3: in general the cost is the daily average price, as
+until March, with an option to override it, because write-offs and other losses do not show in the average. So the
+shadow keeps slice 3's cost, the group's moving average at the start of the sale's day, and the accountant can restate
+a group's average from a day on. Executed on production the same day, on the owner's go, for both stores' months that
+LGR holds the documents of; the dry runs after it planned nothing.
+
+Built: the model `GroupCostOverride`, the replay's restatement, the API and a page. Code:
+`services/biz/accounting-books/group-cost.ts` (`CostOverride`, `GroupCostBook`), `group-cost.service.ts`
+(`costOverridesOf`, `loadGroupCosts`), `group-cost-override.service.ts`, the controller
+`api/accounting/controllers/group-cost.controller.ts`, and Accounting → Group costs (`GroupCostsView.vue`,
+`group-costs-page.ts`).
+
+- **The model.** `{ orgId, analyticId, from, unitCost, reason, createdBy, updatedBy? }`, one a group and day (unique
+  `{ orgId, analyticId, from }`, a guard index). `from` is a business day at UTC midnight, from 2026-01-01 on (the books
+  are in leva before it). `unitCost` is EUR a unit, kept to six decimals, from 0. A reason is required: the write-off,
+  loss or revaluation it stands for.
+- **In the HOME (R7).** One company has one average a group, so the overrides are the home's, and every org of the split
+  reads them by the group's path when its sales post. A store of a split answers 409 `not_books_home`, an org without
+  books 409 `not_a_books_org`. An override follows its group: its path is read at each run, and one whose analytic is
+  gone names no group and is left out.
+- **The restatement.** At the START of the override's day, after an opening of the same day, what is on hand costs the
+  override's unit: the day's sales post at it, what comes in after averages in with it, and what goes out leaves at it,
+  as with any average. With nothing on hand it is the last average, until goods come in and cost what they cost (slice
+  3's restart). It moves no value of its own: the books carry the write-off or revaluation it stands for. A group the
+  books never held has a cost from the override's day. An override before the window's first opening is none: the
+  opening restates the year.
+- **When it takes effect.** At the next `post-shadow-sales.ts` run that covers its day. The posting hash carries the
+  cost, so that run reverses the postings it changes on their own days and posts them again; nothing is written over,
+  and a closed period is left alone. A run over later days only does not reach the sales before them. The run's "Cost
+  basis" line counts the overrides it applied.
+- **The API**, `/org/:orgId/accounting/group-costs`: `GET /` (the home's overrides, the latest day first), `GET
+  /average?analyticId&day` (the group at the start of the day, every other override applied: what is on hand and the
+  average an override of that day restates), `POST /`, `PUT /:id` (the unit and the reason; a group and a day are
+  never changed), `DELETE /:id?expected=`. Reading is `accounts.view`, writing `accounts.edit`. A change and a removal
+  name the override as the page showed it (`expected`: its `updatedAt`) and answer 409 `row_changed` with the row as it
+  is now; a second override of a group and day answers 409 `override_exists`. Every write is in the audit trail
+  (`entityType: 'group_cost_override'`).
+- **The page.** A list, and a dialog with the group (the active goods groups), the day, the unit cost and the reason,
+  and beside them the replayed average at the start of that day with the change in percent. It says that an override
+  takes effect at the next run over its day.
 
 ### R4, slice 1: the pairing count, as built
 

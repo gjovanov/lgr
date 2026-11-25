@@ -60,6 +60,8 @@ export const READ_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   ['accounting/analytics', reads('accounts')],
   // FR-25 R3, slice 2: the review queue of the products' goods groups, read with the chart and its analytics.
   ['accounting/product-groups', reads('accounts')],
+  // FR-25 R3: the accountant's overrides of a goods group's average cost, and the replayed average beside them.
+  ['accounting/group-costs', reads('accounts')],
   ['accounting/books', reads('ledgers')],
   ['accounting/report', reads('ledgers')],
   ['accounting/reports', reads('ledgers')],
@@ -183,6 +185,8 @@ export const WRITE_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   ['accounting/analytics', any('accounts.edit')],
   // FR-25 R3, slice 2: the accountant's group for a product, a confirmed proposal, a decision withdrawn.
   ['accounting/product-groups', any('accounts.edit')],
+  // FR-25 R3: an override of a group's average cost added, changed or removed.
+  ['accounting/group-costs', any('accounts.edit')],
   ['accounting/exchange-rate', writes('exchange-rates')],
   ['accounting/fiscal-year', writes('accounting-setup')],
   ['accounting/fiscal-period', writes('accounting-setup')],

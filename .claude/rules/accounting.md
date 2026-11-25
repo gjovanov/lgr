@@ -277,3 +277,22 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
 
 - **The command.** `scripts/pair-purchases.ts --org <slug> --period YYYYMM [--details]`: read-only, no `--execute`,
   counts only.
+
+## The accountant's override of a group's average cost (2026-11-25, FR-25 R3)
+
+- ⚠ **An override restates the average; it moves no value.** It is the accountant's statement of what a unit of the
+  group costs from the start of its day: what is on hand is restated to it, what comes in after averages in with it,
+  and the write-off or revaluation it stands for stays in the books. Nothing writes it into the books, and the books'
+  cost of a sale still never feeds the average.
+
+- ⚠ **Overrides are the HOME's, matched by path.** One company has one average a group: every org of a split reads
+  the home's overrides by the group's path, as the replay reads the books (ids differ between orgs, R7). A store of a
+  split answers 409 `not_books_home`, so the list cannot fork.
+
+- ⚠ **An override changes nothing until a shadow run covers its day.** The posting hash carries the cost, so the next
+  `post-shadow-sales.ts` over its day reverses and reposts what it changes, on their own days. A run over later days
+  only never reaches the sales before them: after an override dated in the past, run the window from its day.
+
+- **The commands.** Accounting → Group costs (or `/org/:orgId/accounting/group-costs`) in the home, then
+  `scripts/post-shadow-sales.ts --org <slug> --from <the override's day> --to <day> [--execute]` for each org of the
+  split; its "Cost basis" line counts the overrides applied.

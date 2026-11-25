@@ -40,6 +40,7 @@ export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   FiscalYear: { collection: 'fiscalyears', class: 'R', orgPath: 'orgId' },
   FixedAsset: { collection: 'fixedassets', class: 'R', orgPath: 'orgId' },
   GlobalAuditEntry: { collection: 'global_audit_entries', class: 'N', orgPath: 'orgId' },
+  GroupCostOverride: { collection: 'groupcostoverrides', class: 'R', orgPath: 'orgId' },
   Identity: { collection: 'identities', class: 'G', orgPath: null },
   IdpCode: { collection: 'idp_codes', class: 'N', orgPath: 'orgId' },
   InternalOrder: { collection: 'internalorders', class: 'R', orgPath: 'orgId' },

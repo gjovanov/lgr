@@ -33,7 +33,7 @@ const ORG_DATA = [
   'AbsenceEntry', 'Account', 'AccountingAnalytic', 'ArchiveUnit', 'AuditLog', 'BankAccount', 'BankReconciliation', 'CashOrder', 'Code',
   'Contact', 'CostLayer', 'Desktop', 'DesktopEnrollmentCode', 'DesktopEnrollmentKey',
   'DesktopEnrollmentKeyUse', 'DocFile', 'EmailLog', 'Employee', 'EmploymentContract', 'ExchangeRate', 'File',
-  'FiscalDevice', 'FiscalPeriod', 'FiscalPosition', 'FiscalYear', 'FixedAsset', 'InternalOrder',
+  'FiscalDevice', 'FiscalPeriod', 'FiscalPosition', 'FiscalYear', 'FixedAsset', 'GroupCostOverride', 'InternalOrder',
   'InventoryCount', 'Invite', 'Invoice', 'Journal', 'JournalEntry', 'LeaveBalance', 'Notification', 'OAuthHandoff',
   'OperationType', 'Order', 'OrgApp', 'OrgLogo', 'POSPaymentMethod', 'POSSession', 'POSTransaction',
   'PaymentOrder', 'PaymentTerm', 'PayrollElement', 'PayrollRun', 'Payslip', 'PersonalDataKey', 'PostingJob', 'PostingRule', 'PriceList', 'Product',

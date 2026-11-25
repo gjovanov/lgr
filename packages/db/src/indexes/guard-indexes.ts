@@ -32,6 +32,7 @@ export const GUARD_INDEXES: readonly GuardIndex[] = [
   { model: 'PostingJob', key: { orgId: 1, postingKey: 1 }, guards: 'one owed posting per key (FR-29.15)' },
   { model: 'ProductGroupMap', key: { orgId: 1, productId: 1 }, guards: 'one accounting group per product (FR-25 §3.6)' },
   { model: 'PostingRule', key: { orgId: 1, code: 1 }, guards: 'one posting rule per code: two seed runs insert it once (FR-25 §3.7)' },
+  { model: 'GroupCostOverride', key: { orgId: 1, analyticId: 1, from: 1 }, guards: "one override of a goods group's average a day (FR-25 R3)" },
   {
     model: 'VatRegisterEntry',
     key: { orgId: 1, ledger: 1, 'source.orgId': 1, 'source.id': 1 },
