@@ -113,6 +113,7 @@ import { useI18n } from 'vue-i18n'
 import { VChip } from 'vuetify/components'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useNodeAlarms } from 'ui-shared/composables/useNodeAlarms'
+import { updateLine } from '../settings/update-line'
 
 /**
  * The sys-admin Nodes page (FR-20 plan step P2-3a): every master registered with global, across
@@ -193,13 +194,8 @@ function healthText(health: any): string {
   const parts = [health.appVersion ? `v${health.appVersion}` : null]
   if (typeof health.diskFreeBytes === 'number') parts.push(t('servers.diskFree', { gb: (health.diskFreeBytes / 2 ** 30).toFixed(1) }))
   if (health.apiOk === false) parts.push(t('servers.apiDown'))
-  // FR-20.20: an update that waits, and why; the alarm after seven nights kept out.
-  const u = health.update
-  if (u?.state === 'installing') parts.push(t('servers.updateInstalling', { version: u.available }))
-  if (u?.state === 'deferred') {
-    parts.push(t('servers.updateWaits', { version: u.available, reason: u.reason ?? '' }))
-    if (u.alarm) parts.push(t('servers.updateAlarm', { n: u.blockedWindows ?? 0 }))
-  }
+  // FR-20.20, #952: an update that installs, waits (the alarm after seven nights kept out) or fails (its next try).
+  parts.push(updateLine(health.update, t))
   // #373: replaced libraries the night restart waits to load, kept out by open tills.
   if (health.nightRestart?.alarm) parts.push(t('servers.restartAlarm', { n: health.nightRestart.blockedNights ?? 0 }))
   return parts.filter(Boolean).join(' · ') || '—'

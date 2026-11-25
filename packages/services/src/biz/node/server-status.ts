@@ -94,7 +94,11 @@ export async function serverStatus(orgId: string, now = new Date()): Promise<Rec
   const licence = held ? { plan: held.plan ?? null, paidThrough: held.paidThrough ?? null, graceDays: held.graceDays ?? null, error: held.error ?? null } : null
   const u = sup?.update
   const update = u && typeof u === 'object'
-    ? { state: u.state ?? null, running: u.running ?? null, available: u.available ?? null, reason: u.reason ?? null, blockedWindows: u.blockedWindows ?? 0, alarm: !!u.alarm, supto: u.supto ?? null, suptoWaiting: u.suptoWaiting ?? null }
+    ? {
+        state: u.state ?? null, running: u.running ?? null, available: u.available ?? null, reason: u.reason ?? null, blockedWindows: u.blockedWindows ?? 0, alarm: !!u.alarm, supto: u.supto ?? null, suptoWaiting: u.suptoWaiting ?? null,
+        // #952: a failing update's error and its next try (none from a supervisor before it).
+        error: u.error ?? null, failedAt: u.failedAt ?? null, nextTryAt: u.nextTryAt ?? null,
+      }
     : null
   // #356/#380: the address watch (Linux), and another machine claiming this server's LAN address as it
   // last recorded one. The record outlives the conflict, so `current` says whether it was seen in the

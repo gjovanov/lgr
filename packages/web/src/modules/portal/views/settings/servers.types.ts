@@ -22,7 +22,8 @@ export interface ServerRow {
     appVersion?: string
     diskFreeBytes?: number
     apiOk?: boolean
-    update?: { state?: string; available?: string; reason?: string; blockedWindows?: number; alarm?: boolean }
+    /** #952: `failing` carries the helper's last `error`, `failedAt` and `nextTryAt` (none from an older server). */
+    update?: { state?: string; available?: string; reason?: string; blockedWindows?: number; alarm?: boolean; error?: string; failedAt?: string; nextTryAt?: string }
     nightRestart?: { since?: string; waiting?: string; blockedNights?: number; alarm?: boolean }
   } | null
 }

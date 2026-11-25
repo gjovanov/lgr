@@ -19,8 +19,12 @@
 //!   woken for it, and the status says which version waits (`suptoWaiting`, an alarm on lgrai.app).
 //! - ⚠ The supervisor is not a trust boundary for the update itself: everything it says the helper
 //!   checks again or does not need (the bytes' signatures, the version inside them).
+//! - **An attempt that failed says so** (#952): the helper records its last attempt
+//!   (`update/last-attempt.json`), and while it failed for the version offered, and the helper has
+//!   not been woken for it since, the state is `failing`, with the error and the next try. Never
+//!   `installing`, which holds the night's restart for libraries (`night_restart.rs`).
 
-use crate::install::{self, Root, UpdateState};
+use crate::install::{self, LastAttempt, Root, UpdateState};
 use crate::supervisor::{Registrar, Supervisor};
 
 use crate::version;
@@ -220,6 +224,120 @@ pub struct Candidate {
     pub supto_waiting: Option<String>,
 }
 
+/// #952: the helper's last attempt, when it failed for `candidate` and the helper has not been woken
+/// for it since. `woken_at` (Unix seconds): when this supervisor last woke the helper for this
+/// candidate. An attempt that failed before the offer was read names no version: it counts only
+/// once this supervisor woke the helper for this candidate before it. A newer offered version, or a
+/// later attempt that went well, is no failure.
+pub fn failure_for<'a>(candidate: &str, last: Option<&'a LastAttempt>, woken_at: Option<i64>) -> Option<&'a LastAttempt> {
+    let a = last.filter(|a| a.error.is_some())?;
+    let ours = a.version == candidate || (a.version.is_empty() && woken_at.is_some());
+    // Woken again since: a retry runs (or is about to), and it installs until it says otherwise.
+    let since_wake = woken_at.is_none_or(|w| a.at >= w);
+    (ours && since_wake).then_some(a)
+}
+
+/// #952: when the helper is next woken for a candidate whose last attempt failed (Unix seconds), as
+/// far as the supervisor can say: in an open window, an hour after the last wake; outside it, when it
+/// next opens. A window kept by tills or a network change says why instead, and automatic updates
+/// that are off never try.
+pub fn next_try(gate: &Gate, settings: Settings, local_minutes: Option<u32>, now: i64, woken_at: Option<i64>) -> Option<i64> {
+    match gate {
+        Gate::Open => Some(woken_at.map_or(now, |w| now.max(w + WAKE_EVERY.as_secs() as i64))),
+        Gate::Closed { .. } if !settings.auto => None,
+        Gate::Closed { .. } => {
+            let minutes = local_minutes?;
+            if in_window(minutes, settings.window) {
+                return None;
+            }
+            let until = (settings.window.0 + 24 * 60 - minutes) % (24 * 60);
+            Some(now - now.rem_euclid(60) + i64::from(until) * 60)
+        }
+    }
+}
+
+/// #370, #952: whether the update status holds the night's restart for libraries. Only an update
+/// that installs tonight does: its own restart runs the new libraries. A failing one never.
+pub fn holds_night_restart(update: &serde_json::Value) -> bool {
+    update["state"] == "installing"
+}
+
+fn rfc3339(secs: i64) -> Option<String> {
+    time::OffsetDateTime::from_unix_timestamp(secs).ok()?.format(&time::format_description::well_known::Rfc3339).ok()
+}
+
+/// What one look found, for the status.
+pub struct Look<'a> {
+    pub running: &'a str,
+    pub supto: &'a str,
+    pub auto: bool,
+    pub candidate: Option<&'a Candidate>,
+    pub gate: &'a Gate,
+    pub deferrals: &'a Deferrals,
+    /// The helper's last attempt, when it failed for this candidate (`failure_for`).
+    pub failure: Option<&'a LastAttempt>,
+    /// Unix seconds (`next_try`).
+    pub next_try: Option<i64>,
+    pub checked_at: &'a str,
+}
+
+/// The update status (`update` in the supervisor's status, and the health frame global keeps).
+pub fn status_of(l: &Look) -> serde_json::Value {
+    let Some(c) = l.candidate else {
+        return serde_json::json!({ "state": "up-to-date", "running": l.running, "supto": l.supto, "auto": l.auto, "checkedAt": l.checked_at });
+    };
+    let v = &c.version;
+    // FR-20.20: the windows open tills kept it out, counted whatever else is said.
+    let blocked = if l.deferrals.version == *v { l.deferrals.windows.len() } else { 0 };
+    let reason = match l.gate {
+        Gate::Open => None,
+        Gate::Closed { reason, .. } => Some(reason.as_str()),
+    };
+    // FR-20.50: not before its declaration, whatever the gate says; nothing is counted.
+    if let Some(waiting) = &c.supto_waiting {
+        return serde_json::json!({
+            "state": "deferred",
+            "running": l.running,
+            "supto": l.supto,
+            "available": v,
+            "reason": format!("SUPTO version {waiting} waits for its declaration to НАП"),
+            "suptoWaiting": waiting,
+            "blockedWindows": 0,
+            "alarm": false,
+            "checkedAt": l.checked_at,
+        });
+    }
+    // #952: the last attempt failed for it. `reason` is why it is not tried now, when it is not.
+    if let Some(f) = l.failure {
+        return serde_json::json!({
+            "state": "failing",
+            "running": l.running,
+            "supto": l.supto,
+            "available": v,
+            "error": f.error,
+            "failedAt": rfc3339(f.at),
+            "nextTryAt": l.next_try.and_then(rfc3339),
+            "reason": reason,
+            "blockedWindows": blocked,
+            "alarm": blocked >= ALARM_WINDOWS,
+            "checkedAt": l.checked_at,
+        });
+    }
+    match reason {
+        None => serde_json::json!({ "state": "installing", "running": l.running, "supto": l.supto, "available": v, "checkedAt": l.checked_at }),
+        Some(reason) => serde_json::json!({
+            "state": "deferred",
+            "running": l.running,
+            "supto": l.supto,
+            "available": v,
+            "reason": reason,
+            "blockedWindows": blocked,
+            "alarm": blocked >= ALARM_WINDOWS,
+            "checkedAt": l.checked_at,
+        }),
+    }
+}
+
 /// FR-20.12: why nothing on this machine installs an update, when nothing does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -366,7 +484,11 @@ impl Updates {
         let elsewhere = Elsewhere::here();
         let mut deferrals: Deferrals = std::fs::read_to_string(&self.deferrals_file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
         let (mut last_offer, mut candidate): (Option<Instant>, Option<Candidate>) = (None, None);
-        let mut last_wake: Option<(String, Instant)> = None;
+        // The version, when (to space the wakes), and when by the wall clock (to compare with the
+        // helper's last attempt, #952).
+        let mut last_wake: Option<(String, Instant, i64)> = None;
+        // The failed attempt last logged: once each, not every five minutes.
+        let mut last_failure_said: Option<(String, i64)> = None;
         // A minute after start: the API first, and a crash loop never asks global on every start.
         tokio::time::sleep(Duration::from_secs(60)).await;
         loop {
@@ -389,58 +511,57 @@ impl Updates {
             }
             let (gate, day) = self.gate_now(sup.api_control()).await;
             match (&candidate, &gate) {
-                (None, _) => self.set(serde_json::json!({ "state": "up-to-date", "running": self.running, "supto": self.supto, "auto": self.settings.auto, "checkedAt": now })),
                 // FR-20.50: not before its declaration, whatever the gate says; nothing is counted.
-                (Some(Candidate { version: v, supto_waiting: Some(waiting) }), _) => {
-                    self.set(serde_json::json!({
-                        "state": "deferred",
-                        "running": self.running,
-                        "supto": self.supto,
-                        "available": v,
-                        "reason": format!("SUPTO version {waiting} waits for its declaration to НАП"),
-                        "suptoWaiting": waiting,
-                        "blockedWindows": 0,
-                        "alarm": false,
-                        "checkedAt": now,
-                    }));
-                }
+                (None, _) | (Some(Candidate { supto_waiting: Some(_), .. }), _) => {}
                 (Some(Candidate { version: v, .. }), Gate::Open) => {
-                    let due = last_wake.as_ref().is_none_or(|(w, at)| w != v || at.elapsed() >= WAKE_EVERY);
+                    let due = last_wake.as_ref().is_none_or(|(w, at, _)| w != v || at.elapsed() >= WAKE_EVERY);
                     if due {
                         tracing::info!(version = %v, "an update is available and nothing is in its way: waking the update helper");
                         match crate::pointer::wake_helper(&self.registrar.data) {
-                            Ok(()) => last_wake = Some((v.clone(), Instant::now())),
+                            Ok(()) => last_wake = Some((v.clone(), Instant::now(), install::now_secs())),
                             Err(e) => tracing::error!(error = %format!("{e:#}"), "the update helper could not be woken"),
                         }
                     }
-                    self.set(serde_json::json!({ "state": "installing", "running": self.running, "supto": self.supto, "available": v, "checkedAt": now }));
                 }
-                (Some(Candidate { version: v, .. }), Gate::Closed { reason, busy }) => {
-                    let mut blocked = 0;
-                    if *busy {
-                        if let Some(day) = day {
-                            blocked = deferrals.record(v, day);
-                            if let Some(dir) = self.deferrals_file.parent() {
-                                let _ = std::fs::create_dir_all(dir);
-                            }
-                            let _ = std::fs::write(&self.deferrals_file, serde_json::to_string(&deferrals).unwrap_or_default());
-                            if blocked >= ALARM_WINDOWS {
-                                tracing::error!(version = %v, windows = blocked, "open sessions have kept this update from installing through {blocked} maintenance windows: close the tills at night");
-                            }
+                (Some(Candidate { version: v, .. }), Gate::Closed { busy: true, .. }) => {
+                    if let Some(day) = day {
+                        let blocked = deferrals.record(v, day);
+                        if let Some(dir) = self.deferrals_file.parent() {
+                            let _ = std::fs::create_dir_all(dir);
+                        }
+                        let _ = std::fs::write(&self.deferrals_file, serde_json::to_string(&deferrals).unwrap_or_default());
+                        if blocked >= ALARM_WINDOWS {
+                            tracing::error!(version = %v, windows = blocked, "open sessions have kept this update from installing through {blocked} maintenance windows: close the tills at night");
                         }
                     }
-                    self.set(serde_json::json!({
-                        "state": "deferred",
-                        "running": self.running,
-                        "supto": self.supto,
-                        "available": v,
-                        "reason": reason,
-                        "blockedWindows": if deferrals.version == *v { deferrals.windows.len() } else { blocked },
-                        "alarm": deferrals.version == *v && deferrals.windows.len() >= ALARM_WINDOWS,
-                        "checkedAt": now,
-                    }));
+                }
+                (Some(_), Gate::Closed { .. }) => {}
+            }
+            // #952: what the helper made of its last attempt, for this candidate.
+            let last = self.root.as_ref().and_then(LastAttempt::load);
+            let woken_at = |v: &str| last_wake.as_ref().filter(|(w, ..)| w == v).map(|(.., at)| *at);
+            let failure = candidate.as_ref().and_then(|c| failure_for(&c.version, last.as_ref(), woken_at(&c.version)));
+            if let (Some(c), Some(f)) = (&candidate, failure) {
+                if last_failure_said.as_ref() != Some(&(c.version.clone(), f.at)) {
+                    tracing::warn!(version = %c.version, error = %f.error.as_deref().unwrap_or_default(), "the update helper's last attempt at this version failed: it is tried again later");
+                    last_failure_said = Some((c.version.clone(), f.at));
                 }
             }
+            let next = match (&candidate, failure) {
+                (Some(c), Some(_)) => next_try(&gate, self.settings, local_now().map(|(_, m)| m), install::now_secs(), woken_at(&c.version)),
+                _ => None,
+            };
+            self.set(status_of(&Look {
+                running: &self.running,
+                supto: &self.supto,
+                auto: self.settings.auto,
+                candidate: candidate.as_ref(),
+                gate: &gate,
+                deferrals: &deferrals,
+                failure,
+                next_try: next,
+                checked_at: &now,
+            }));
             tokio::time::sleep(TICK).await;
         }
     }
@@ -512,6 +633,88 @@ mod tests {
     fn the_local_clock_reads() {
         let (_, minutes) = local_now().unwrap();
         assert!(minutes < 24 * 60);
+    }
+
+    fn candidate(v: &str) -> Candidate {
+        Candidate { version: v.into(), supto_waiting: None }
+    }
+
+    fn look<'a>(c: Option<&'a Candidate>, gate: &'a Gate, deferrals: &'a Deferrals, failure: Option<&'a LastAttempt>, next_try: Option<i64>) -> Look<'a> {
+        Look { running: "0.1.912", supto: "1", auto: true, candidate: c, gate, deferrals, failure, next_try, checked_at: "t" }
+    }
+
+    /// #952: `failing` only for the candidate, only while nothing was tried since, and never once an
+    /// attempt went well or a newer version is offered.
+    #[test]
+    fn a_failed_attempt_is_failing_only_for_its_candidate_until_something_is_tried_again() {
+        let failed = LastAttempt { version: "0.1.913".into(), at: 1_000, error: Some("global answered 401 Unauthorized".into()) };
+        // No attempt yet: nothing fails.
+        assert_eq!(failure_for("0.1.913", None, None), None);
+        // Failed for this candidate, before any wake of this supervisor, or after its last one.
+        assert_eq!(failure_for("0.1.913", Some(&failed), None), Some(&failed));
+        assert_eq!(failure_for("0.1.913", Some(&failed), Some(900)), Some(&failed));
+        assert_eq!(failure_for("0.1.913", Some(&failed), Some(1_000)), Some(&failed), "the same second is after the wake");
+        // Woken again since: a retry is running, and that installs.
+        assert_eq!(failure_for("0.1.913", Some(&failed), Some(1_001)), None);
+        // A newer version offered: its own attempt, not the old one's error.
+        assert_eq!(failure_for("0.1.914", Some(&failed), None), None);
+        // A later attempt that went well.
+        assert_eq!(failure_for("0.1.913", Some(&LastAttempt { error: None, ..failed.clone() }), None), None);
+        // Before the offer was read (no version): only once this supervisor woke the helper for it.
+        let unnamed = LastAttempt { version: String::new(), ..failed.clone() };
+        assert_eq!(failure_for("0.1.913", Some(&unnamed), None), None);
+        assert_eq!(failure_for("0.1.913", Some(&unnamed), Some(900)), Some(&unnamed));
+    }
+
+    #[test]
+    fn the_state_says_installing_failing_or_deferred() {
+        let (c, d) = (candidate("0.1.913"), Deferrals::default());
+        let failed = LastAttempt { version: "0.1.913".into(), at: 1_764_100_000, error: Some("the bundle's sha256 is not the offer's".into()) };
+        // No candidate.
+        assert_eq!(status_of(&look(None, &Gate::Open, &d, None, None))["state"], "up-to-date");
+        // No attempt has failed: installing in an open window.
+        let s = status_of(&look(Some(&c), &Gate::Open, &d, None, None));
+        assert_eq!((s["state"].as_str(), s["available"].as_str()), (Some("installing"), Some("0.1.913")));
+        assert!(!holds_night_restart(&serde_json::json!({ "state": "failing" })));
+        assert!(holds_night_restart(&s), "a real install holds the night restart");
+        // Failed for it: failing, with the error, when, and the next try.
+        let s = status_of(&look(Some(&c), &Gate::Open, &d, Some(&failed), Some(1_764_103_600)));
+        assert_eq!(s["state"], "failing");
+        assert_eq!(s["error"], "the bundle's sha256 is not the offer's");
+        assert_eq!(s["failedAt"], "2025-11-25T19:46:40Z");
+        assert_eq!(s["nextTryAt"], "2025-11-25T20:46:40Z");
+        assert!(s["reason"].is_null(), "{s}");
+        assert!(!holds_night_restart(&s), "a failing update never holds the night restart");
+        // Outside the window it still says it is failing, and why it waits; the tills' count stays.
+        let closed = Gate::Closed { reason: "outside the maintenance window".into(), busy: false };
+        let seven = Deferrals { version: "0.1.913".into(), windows: (1..=7).map(|d| format!("2026-11-{d:02}")).collect() };
+        let s = status_of(&look(Some(&c), &closed, &seven, Some(&failed), None));
+        assert_eq!((s["state"].as_str(), s["reason"].as_str()), (Some("failing"), Some("outside the maintenance window")));
+        assert_eq!((s["blockedWindows"].as_u64(), s["alarm"].as_bool()), (Some(7), Some(true)));
+        assert!(s["nextTryAt"].is_null());
+        // Without a failure a closed gate is deferred, as before.
+        let s = status_of(&look(Some(&c), &closed, &d, None, None));
+        assert_eq!((s["state"].as_str(), s["blockedWindows"].as_u64(), s["alarm"].as_bool()), (Some("deferred"), Some(0), Some(false)));
+        // A SUPTO version waiting for its declaration says that first.
+        let waiting = Candidate { version: "0.1.913".into(), supto_waiting: Some("2".into()) };
+        let s = status_of(&look(Some(&waiting), &Gate::Open, &d, Some(&failed), None));
+        assert_eq!((s["state"].as_str(), s["suptoWaiting"].as_str()), (Some("deferred"), Some("2")));
+    }
+
+    #[test]
+    fn the_next_try_is_the_next_wake_or_the_next_window() {
+        let s = Settings::default();
+        let closed = |busy| Gate::Closed { reason: "x".into(), busy };
+        // Open: an hour after the last wake, or now when none was made (it is made this look).
+        assert_eq!(next_try(&Gate::Open, s, Some(23 * 60), 10_000, Some(9_000)), Some(9_000 + 3600));
+        assert_eq!(next_try(&Gate::Open, s, Some(23 * 60), 20_000, Some(9_000)), Some(20_000));
+        assert_eq!(next_try(&Gate::Open, s, Some(23 * 60), 10_000, None), Some(10_000));
+        // Outside the window: when it opens next (21:30 → 22:00, 06:00 → 22:00), at the minute.
+        assert_eq!(next_try(&closed(false), s, Some(21 * 60 + 30), 3_600 + 17, None), Some(3_600 + 30 * 60));
+        assert_eq!(next_try(&closed(false), s, Some(6 * 60), 0, None), Some(16 * 3600));
+        // Kept by tills inside the window, or automatic updates off: no time to give.
+        assert_eq!(next_try(&closed(true), s, Some(23 * 60), 0, None), None);
+        assert_eq!(next_try(&closed(false), Settings { auto: false, ..s }, Some(12 * 60), 0, None), None);
     }
 
     /// FR-20.12: an image is updated by its tag. Its status says what is offered and how to take it,

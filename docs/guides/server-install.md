@@ -302,6 +302,14 @@ The packages install a version beside the others and point the service at it (FR
 
   If open tills keep an update out for 7 nights, `lgr-server status` and the Servers page on
   lgrai.app say so. Close the tills at night.
+
+  If the helper's last attempt failed (the download was refused, the bundle did not verify, or no
+  backup could be taken first), the update reads `failing`, never `installing`: `lgr-server status`
+  shows `update   failing 0.1.913 available (last attempt failed: <why>, next try <when>)`, and so do
+  the server's status page and its row on lgrai.app's Servers page. The helper's last attempt is
+  `update/last-attempt.json`, and its whole story `update/helper.log`. It tries again an hour later
+  in the window, or the next night. A failing update does not hold the
+  [night's restart for libraries](#security-updates-on-ubuntu-and-debian).
 - **By hand** (a server with no internet): download the bundle and its `.sig` (and on Linux its
   `.asc`) from the release, then as an administrator or root:
   ```

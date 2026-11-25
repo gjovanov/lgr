@@ -381,6 +381,26 @@ describe('control (P2-3a)', () => {
     await handleUplinkClose(ws3)
   })
 
+  it('a failing update reaches the Servers list with its error and its next try (#952)', async () => {
+    const { stub, orgId, token } = await aNode()
+    const admin = await createTestUser(orgId, { role: 'admin' } as any)
+    const app = createApiApp()
+    const jwt = (await import('@elysiajs/jwt')).default
+    const signer = (new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret })) as any).decorator.jwt
+    const bearer = await signer.sign({ id: String(admin._id), email: (admin as any).email, username: (admin as any).username, role: 'admin', orgId, permissions: [] })
+    const ws = await connected(await token())
+    const failedAt = new Date(Date.now() - 600_000).toISOString()
+    const nextTryAt = new Date(Date.now() + 3_000_000).toISOString()
+    await handleUplinkMessage(ws, JSON.stringify({
+      t: 'health', versions: { app: '0.1.912' }, uptimeSecs: 3, api: { ok: true },
+      update: { state: 'failing', running: '0.1.912', available: '0.1.913', error: 'no update was installed: global answered 401 Unauthorized', failedAt, nextTryAt, reason: null, blockedWindows: 0, alarm: false },
+    }))
+    const list = await (await app.handle(new Request(`http://localhost/api/org/${orgId}/nodes`, { headers: { authorization: `Bearer ${bearer}` } }))).json()
+    const row = list.nodes.find((n: any) => n.id === stub.nodeId)
+    expect(row.health.update).toMatchObject({ state: 'failing', available: '0.1.913', error: 'no update was installed: global answered 401 Unauthorized', failedAt, nextTryAt })
+    await handleUplinkClose(ws)
+  })
+
   it('the sys-admin Nodes API: every master across orgs, for the allow-list alone; 404 on a master', async () => {
     const a = await aNode()
     const b = await aNode()

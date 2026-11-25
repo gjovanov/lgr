@@ -382,6 +382,26 @@ Updates that come by themselves (plan step P1-8c, `updates.rs`, `helper.rs`, `si
   copy made in `update/staging/`, switched now and watched.
 - **Seven windows kept by open sessions** raise the alarm: the status's `update.alarm` and the
   health frame's `update`, and a logged error. Nothing is ever forced.
+- **The states** (`update.state` in the status and the health frame, `updates.rs#status_of`):
+  `up-to-date` (nothing newer is offered), `installing` (offered, the gate is open, and no attempt
+  failed for it since the helper was last woken), `deferred` (the gate is closed: `reason`,
+  `blockedWindows`, `alarm`; or a SUPTO version waits, `suptoWaiting`), `failing` (#952, below),
+  `not-versioned`, and `image` / `manual` where nothing here installs (FR-20.12).
+- **An attempt that failed says so** (#952). The helper writes its last attempt to
+  `update/last-attempt.json` (whole: a temporary file, flushed, renamed; `install::LastAttempt`):
+  `version` (empty when it failed before it read the offer), `at` (Unix seconds) and `error` (none
+  when it switched, or installed the version for the next chance). A refused download, a bundle that
+  does not verify (size, sha256, a signature, its SUPTO version) and no backup before the switch are
+  all errors there. While the last attempt failed for the version offered, and the supervisor has not
+  woken the helper again since, the state is `failing` with `error`, `failedAt`, `nextTryAt` (an hour
+  after the last wake in an open window, the window's start outside it, none while tills keep it or
+  updates are off: `reason` then says why) and the tills' `blockedWindows` / `alarm`. A newer version
+  offered, or a later attempt that went well, ends it; a wake makes it `installing` again until the
+  helper records otherwise. A transient error still retries an hour later; only the words change.
+  ⚠ Only `installing` holds the night's restart for libraries (`updates::holds_night_restart`): an
+  update failing every night must not keep the new libraries out too. Global keeps `error` (200
+  characters), `failedAt` and `nextTryAt` (never more than a week ahead) on the node's health; a
+  global from before #952 drops the whole `update` of a frame whose state it does not know.
 - **A SUPTO version waits for its declaration** (FR-20.50, plan step P3-8c). A change to Прил. 29
   functionality or to the database structure is a new SUPTO version, which the producer declares to
   НАП. Each release says which version it is (`lgr-server-<v>.supto` beside the bundles, `supto` in
