@@ -13,13 +13,111 @@
 //!   (`pgp.rs`).
 //!
 //! ⚠ Rotating either key takes a release that carries the new one, signed by the old.
+//!
+//! **A TEST build** (`build_kind`, FR-20 plan F.4.4) also trusts the update keys its field lane names
+//! in `<root>/update/test-update-keys.json` ([`UpdateKeys`]): the lane's throwaway global offers a
+//! version the lane signed with keys made for one run, so `version-skew` can watch an outdated master
+//! update itself. Any other build never reads the file.
+//! - ⚠ The file is under `update/`, SYSTEM's or root's alone like the rest of it, and NEVER
+//!   `config/api.env`, where the licence test keys are: that file sits in the data directory, which
+//!   the service account may write (AC 59), and a key it could name there would choose what the helper
+//!   installs as SYSTEM or root.
+//! - Only the two KEYS are added to. Windows' Authenticode check names a publisher, not a key, and a
+//!   TEST build is never signed: a Windows TEST build does not update itself.
 
+use crate::install::Root;
 use anyhow::{Context, Result};
 use std::path::Path;
 
 /// The minisign public key every update is signed with: base64 of minisign's key file, as Tauri
 /// writes it.
 pub const UPDATER_PUB: &str = include_str!("../../desktop/src-tauri/updater.pub");
+
+/// The file under `<root>/update/` that names the update keys a TEST build also trusts:
+/// `{"minisign": ["<base64 of a minisign public key file, as Tauri writes updater.pub>"],
+///   "gpg": ["<64 hex digits: the ed25519 point of an OpenPGP signing key>"]}`.
+pub const TEST_UPDATE_KEYS_FILE: &str = "test-update-keys.json";
+
+/// What made a signature: this build's own key, or one its lane named.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Signer {
+    Release,
+    Test,
+}
+
+/// The keys an update is checked against: the ones this binary carries, and in a TEST build those
+/// `<root>/update/test-update-keys.json` names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateKeys {
+    /// minisign public keys as Tauri writes them; [`UPDATER_PUB`] first.
+    minisign: Vec<String>,
+    /// Test signing keys' ed25519 points, checked beside the pinned release key (`pgp.rs`).
+    gpg: Vec<[u8; 32]>,
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct TestKeysFile {
+    minisign: Vec<String>,
+    gpg: Vec<String>,
+}
+
+fn minisign_key(b64: &str) -> Result<minisign_verify::PublicKey> {
+    minisign_verify::PublicKey::decode(&b64_text("updater key", b64)?).map_err(|e| anyhow::anyhow!("the updater key does not decode: {e}"))
+}
+
+fn ed25519_point(hex: &str) -> Option<[u8; 32]> {
+    let hex = hex.trim();
+    if hex.len() != 64 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let mut point = [0u8; 32];
+    for (i, byte) in point.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).ok()?;
+    }
+    Some(point)
+}
+
+impl UpdateKeys {
+    /// The keys of any build that is not a TEST build: this binary's own.
+    pub fn built_in() -> Self {
+        Self { minisign: vec![UPDATER_PUB.to_string()], gpg: vec![] }
+    }
+
+    /// The keys an update of the install under `root` is checked against.
+    pub fn for_root(root: &Root) -> Self {
+        Self::for_root_as(root, crate::build_kind::test_keys())
+    }
+
+    fn for_root_as(root: &Root, test_build: bool) -> Self {
+        let mut keys = Self::built_in();
+        if !test_build {
+            return keys;
+        }
+        let file = root.update().join(TEST_UPDATE_KEYS_FILE);
+        let Ok(text) = std::fs::read_to_string(&file) else { return keys };
+        let named: TestKeysFile = match serde_json::from_str(&text) {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::warn!(file = %file.display(), error = %e, "the TEST update keys do not read: none is trusted");
+                return keys;
+            }
+        };
+        let (minisign, gpg) = (named.minisign.len(), named.gpg.len());
+        keys.minisign.extend(named.minisign.into_iter().filter(|k| minisign_key(k).is_ok()));
+        keys.gpg.extend(named.gpg.iter().filter_map(|h| ed25519_point(h)));
+        let (m, g) = keys.test_counts();
+        if m < minisign || g < gpg {
+            tracing::warn!(file = %file.display(), skipped = (minisign - m) + (gpg - g), "entries of the TEST update keys that are no key were skipped");
+        }
+        keys
+    }
+
+    /// How many keys the lane named, of each kind: (minisign, GPG).
+    pub fn test_counts(&self) -> (usize, usize) {
+        (self.minisign.len() - 1, self.gpg.len())
+    }
+}
 
 /// Who signs our Windows binaries (roomler's identity, FR-14.3). Matched exactly.
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -32,17 +130,54 @@ fn b64_text(what: &str, b64: &str) -> Result<String> {
 }
 
 /// Verify `file` against `signature` (a `.sig`'s content: base64 of a minisign signature) with the
-/// updater key this binary carries. Read in chunks: a bundle is a few hundred megabytes.
-pub fn verify_update_signature(file: &Path, signature: &str) -> Result<()> {
-    verify_minisign(file, signature, UPDATER_PUB)
+/// updater key this binary carries, and the ones `keys` adds in a TEST build. Read in chunks: a
+/// bundle is a few hundred megabytes.
+pub fn verify_update_signature(file: &Path, signature: &str, keys: &UpdateKeys) -> Result<Signer> {
+    let by = if verify_minisign_any(file, signature, &keys.minisign)? == 0 { Signer::Release } else { Signer::Test };
+    said_by(file, "update", by);
+    Ok(by)
 }
 
+/// A TEST build says so whenever a key its lane named is what let an update through.
+fn said_by(file: &Path, which: &str, by: Signer) {
+    if by == Signer::Test {
+        tracing::warn!(file = %file.display(), signature = which, "verified with a TEST key named in update/{TEST_UPDATE_KEYS_FILE}: a TEST build installs what its field lane signed");
+    }
+}
+
+#[cfg(test)]
 fn verify_minisign(file: &Path, signature: &str, public_key: &str) -> Result<()> {
+    verify_minisign_any(file, signature, &[public_key]).map(|_| ())
+}
+
+/// The signature names the key that made it: the file is streamed once, through the first of
+/// `public_keys` with that key's id. The index of that key. With one key the refusal says so, as it
+/// always has.
+fn verify_minisign_any(file: &Path, signature: &str, public_keys: &[impl AsRef<str>]) -> Result<usize> {
     use std::io::Read;
-    let key = minisign_verify::PublicKey::decode(&b64_text("updater key", public_key)?).map_err(|e| anyhow::anyhow!("the updater key does not decode: {e}"))?;
+    let keys = public_keys.iter().map(|k| minisign_key(k.as_ref())).collect::<Result<Vec<_>>>()?;
     let sig = minisign_verify::Signature::decode(&b64_text("update signature", signature)?).map_err(|e| anyhow::anyhow!("the update signature does not decode: {e}"))?;
     // ⚠ Prehashed only (what `tauri signer` writes): the legacy mode signs raw bytes and is refused.
-    let mut v = key.verify_stream(&sig).map_err(|e| anyhow::anyhow!("the update signature is not for this key: {e}"))?;
+    let mut found = None;
+    let mut refusal = None;
+    for (i, key) in keys.iter().enumerate() {
+        match key.verify_stream(&sig) {
+            Ok(v) => {
+                found = Some((i, v));
+                break;
+            }
+            // The key's own refusal (the legacy mode) says more than another key's id.
+            Err(e) if refusal.is_none() || !matches!(e, minisign_verify::Error::UnexpectedKeyId) => refusal = Some(e),
+            Err(_) => {}
+        }
+    }
+    let Some((index, mut v)) = found else {
+        let e = refusal.map(|e| e.to_string()).unwrap_or_else(|| "no key".into());
+        match keys.len() {
+            1 => anyhow::bail!("the update signature is not for this key: {e}"),
+            n => anyhow::bail!("no key this TEST build trusts takes the update signature (the updater key and {} test key(s)): {e}", n - 1),
+        }
+    };
     let mut f = std::fs::File::open(file).with_context(|| format!("opening {}", file.display()))?;
     let mut buf = vec![0u8; 1 << 20];
     loop {
@@ -52,14 +187,17 @@ fn verify_minisign(file: &Path, signature: &str, public_key: &str) -> Result<()>
         }
         v.update(&buf[..n]);
     }
-    v.finalize().map_err(|e| anyhow::anyhow!("{} does not verify against the updater key: {e}", file.display()))
+    v.finalize().map_err(|e| anyhow::anyhow!("{} does not verify against the updater key: {e}", file.display()))?;
+    Ok(index)
 }
 
-/// Linux: the release GPG key over the bundle.
+/// Linux: the release GPG key over the bundle, and the ones `keys` adds in a TEST build.
 #[cfg_attr(windows, allow(dead_code))]
-pub fn verify_platform_signature(file: &Path, asc: &str) -> Result<()> {
+pub fn verify_platform_signature(file: &Path, asc: &str, keys: &UpdateKeys) -> Result<Signer> {
     let f = std::fs::File::open(file).with_context(|| format!("opening {}", file.display()))?;
-    crate::pgp::verify_release_artifact(std::io::BufReader::new(f), asc)
+    let by = if crate::pgp::verify_release_artifact(std::io::BufReader::new(f), asc, &keys.gpg)? { Signer::Test } else { Signer::Release };
+    said_by(file, "platform", by);
+    Ok(by)
 }
 
 /// Windows: `exe` carries a trusted Authenticode signature by exactly [`EXPECTED_PUBLISHER`].
@@ -232,9 +370,64 @@ mod tests {
     #[test]
     fn the_legacy_mode_and_another_key_are_refused() {
         assert!(verify_minisign(file(b"test").path(), &b64(LEGACY_SIG), &b64(PUB)).is_err());
-        // The updater's real key did not make this signature.
-        assert!(verify_update_signature(file(b"test").path(), &b64(SIG)).unwrap_err().to_string().contains("not for this key"));
+        // The updater's real key did not make this signature, and the refusal reads as it always has.
+        let err = verify_update_signature(file(b"test").path(), &b64(SIG), &UpdateKeys::built_in()).unwrap_err().to_string();
+        assert_eq!(err, "the update signature is not for this key: The signature was created with a different key than the one provided");
         assert!(verify_minisign(file(b"test").path(), "not base64 at all!", &b64(PUB)).is_err());
+    }
+
+    /// A root whose `update/test-update-keys.json` says `text`.
+    fn root_naming(text: &str) -> (tempfile::TempDir, Root) {
+        let t = tempfile::tempdir().unwrap();
+        let root = Root(t.path().to_path_buf());
+        std::fs::create_dir_all(root.update()).unwrap();
+        std::fs::write(root.update().join(TEST_UPDATE_KEYS_FILE), text).unwrap();
+        (t, root)
+    }
+
+    fn hex(key: &[u8; 32]) -> String {
+        key.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    #[test]
+    fn only_a_test_build_reads_the_update_keys_its_lane_names() {
+        use crate::pgp::fixture::FIXTURE_KEY;
+        let (_t, root) = root_naming(&serde_json::json!({ "minisign": [b64(PUB), "not a key"], "gpg": [hex(&FIXTURE_KEY), "abc", "zz".repeat(32)] }).to_string());
+        // Any other build: its own keys, whatever the file says.
+        assert_eq!(UpdateKeys::for_root_as(&root, false), UpdateKeys::built_in());
+        assert_eq!(UpdateKeys::for_root_as(&root, false).test_counts(), (0, 0));
+        // A TEST build: its own, then the lane's; what is no key is skipped.
+        let keys = UpdateKeys::for_root_as(&root, true);
+        assert_eq!(keys.test_counts(), (1, 1));
+        assert_eq!((keys.minisign[0].as_str(), keys.minisign[1].as_str(), keys.gpg[0]), (UPDATER_PUB, b64(PUB).as_str(), FIXTURE_KEY));
+        // No file, a file that does not read, a field it does not know: its own keys alone.
+        assert_eq!(UpdateKeys::for_root_as(&Root(tempfile::tempdir().unwrap().path().to_path_buf()), true), UpdateKeys::built_in());
+        assert_eq!(UpdateKeys::for_root_as(&root_naming("not json").1, true), UpdateKeys::built_in());
+        assert_eq!(UpdateKeys::for_root_as(&root_naming(&serde_json::json!({ "minisgn": [b64(PUB)] }).to_string()).1, true), UpdateKeys::built_in());
+        // This tree is no test build, so `for_root` itself ignores the file.
+        assert_eq!(UpdateKeys::for_root(&root), UpdateKeys::built_in());
+    }
+
+    #[test]
+    fn a_test_key_verifies_what_it_signed_and_says_so() {
+        let (_t, root) = root_naming(&serde_json::json!({ "minisign": [b64(PUB)] }).to_string());
+        let keys = UpdateKeys::for_root_as(&root, true);
+        assert_eq!(verify_update_signature(file(b"test").path(), &b64(SIG), &keys).unwrap(), Signer::Test);
+        // Changed bytes stay refused, a test key or not.
+        assert!(verify_update_signature(file(b"Test").path(), &b64(SIG), &keys).unwrap_err().to_string().contains("does not verify against the updater key"));
+        // The legacy mode of the same key is refused by that key, not reported as another key's.
+        let err = verify_update_signature(file(b"test").path(), &b64(LEGACY_SIG), &keys).unwrap_err().to_string();
+        assert!(err.contains("the updater key and 1 test key(s)") && err.contains("non-legacy"), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_test_build_takes_the_gpg_key_its_lane_names_beside_the_pin() {
+        use crate::pgp::fixture::{FIXTURE_ASC, FIXTURE_KEY, FIXTURE_MSG};
+        let signed = file(FIXTURE_MSG);
+        assert!(verify_platform_signature(signed.path(), FIXTURE_ASC, &UpdateKeys::built_in()).unwrap_err().to_string().contains("pinned release key"));
+        let (_t, root) = root_naming(&serde_json::json!({ "gpg": [hex(&FIXTURE_KEY).to_uppercase()] }).to_string());
+        assert_eq!(verify_platform_signature(signed.path(), FIXTURE_ASC, &UpdateKeys::for_root_as(&root, true)).unwrap(), Signer::Test);
     }
 
     #[test]
@@ -250,17 +443,18 @@ mod tests {
     fn a_released_bundle_verifies_and_a_flipped_byte_does_not() {
         let path = std::path::PathBuf::from(std::env::var("LGR_TEST_SIGNED_BUNDLE").unwrap());
         let sig = std::fs::read_to_string(format!("{}.sig", path.display())).unwrap();
-        verify_update_signature(&path, &sig).unwrap();
+        let keys = UpdateKeys::built_in();
+        assert_eq!(verify_update_signature(&path, &sig, &keys).unwrap(), Signer::Release);
         let mut bytes = std::fs::read(&path).unwrap();
         let mid = bytes.len() / 2;
         bytes[mid] ^= 1;
         let flipped = file(&bytes);
-        assert!(verify_update_signature(flipped.path(), &sig).is_err());
+        assert!(verify_update_signature(flipped.path(), &sig, &keys).is_err());
         #[cfg(unix)]
         {
             let asc = std::fs::read_to_string(format!("{}.asc", path.display())).unwrap();
-            verify_platform_signature(&path, &asc).unwrap();
-            assert!(verify_platform_signature(flipped.path(), &asc).is_err());
+            assert_eq!(verify_platform_signature(&path, &asc, &keys).unwrap(), Signer::Release);
+            assert!(verify_platform_signature(flipped.path(), &asc, &keys).is_err());
         }
     }
 

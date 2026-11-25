@@ -16,8 +16,9 @@
 //!
 //! With nothing to watch it looks for an update (P1-8c): the supervisor's gate first (the window, the
 //! tills), then the offer from lgrai.app, which it fetches ITSELF through the supervisor's egress, the
-//! bundle into `update/staging/`, its sha256, both signatures against the keys this binary carries,
-//! the version read from inside the bytes, the gate once more, and the switch, watched like any other.
+//! bundle into `update/staging/`, its sha256, both signatures against the keys this binary carries
+//! (a TEST build: and the ones its field lane names in `update/`, `signatures.rs`), the version read
+//! from inside the bytes, the gate once more, and the switch, watched like any other.
 //!
 //! ⚠ It reads the service's health over the supervisor's own channel and nothing from the data
 //! directory, which the service account may write (AC 59). On Windows that channel is a pipe the
@@ -426,9 +427,11 @@ fn try_update(root: &Root) -> Result<bool> {
             if sha256_of(&dest)? != offer.sha256 {
                 anyhow::bail!("the bundle's sha256 is not the offer's");
             }
-            crate::signatures::verify_update_signature(&dest, &offer.signature)?;
+            // This binary's keys, and in a TEST build the ones its lane named under `update/`.
+            let keys = crate::signatures::UpdateKeys::for_root(root);
+            crate::signatures::verify_update_signature(&dest, &offer.signature, &keys)?;
             #[cfg(unix)]
-            crate::signatures::verify_platform_signature(&dest, &offer.platform)?;
+            crate::signatures::verify_platform_signature(&dest, &offer.platform, &keys)?;
             let _lock = Lock::take(root, Duration::from_secs(300))?;
             let installed = install::install_bundle_checked(root, &dest, &|home: &Path| {
                 #[cfg(windows)]
@@ -640,7 +643,8 @@ pub fn install_bundle(root: Option<PathBuf>, bundle: Option<PathBuf>, start: boo
 
 /// `update apply`: an update brought by hand (an air-gapped master, FR-20.20), with both of its
 /// signatures: copied into `update/staging/` first, so what is checked is what is unpacked, checked
-/// against the keys this binary carries, installed, and switched to now, watched like any other.
+/// against the keys this binary carries (and a TEST build's named ones), installed, and switched to
+/// now, watched like any other.
 pub fn apply(bundle: PathBuf, sig: PathBuf, asc: Option<PathBuf>, no_backup: bool) -> Result<i32> {
     a_switch_can_be_watched()?;
     let root = Root::here().context("this lgr-server is not part of an installed server")?;
@@ -658,9 +662,10 @@ pub fn apply(bundle: PathBuf, sig: PathBuf, asc: Option<PathBuf>, no_backup: boo
     let copy = staging.join(name);
     std::fs::copy(&bundle, &copy).with_context(|| format!("copying {}", bundle.display()))?;
     let result = (|| -> Result<i32> {
-        crate::signatures::verify_update_signature(&copy, &signature)?;
+        let keys = crate::signatures::UpdateKeys::for_root(&root);
+        crate::signatures::verify_update_signature(&copy, &signature, &keys)?;
         #[cfg(unix)]
-        crate::signatures::verify_platform_signature(&copy, &asc)?;
+        crate::signatures::verify_platform_signature(&copy, &asc, &keys)?;
         let installed = install::install_bundle_checked(&root, &copy, &|home: &Path| {
             #[cfg(windows)]
             crate::signatures::verify_publisher(&home.join(install::exe_name()))?;

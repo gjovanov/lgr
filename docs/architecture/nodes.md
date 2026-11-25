@@ -376,7 +376,8 @@ Updates that come by themselves (plan step P1-8c, `updates.rs`, `helper.rs`, `si
   signature against the updater key this binary carries, on Linux the release GPG key (roomler's
   subkey `5DB8221F…`, pinned), unpacked, on Windows WinVerifyTrust on the version's exe and a signer
   named exactly `G ROX LTD`, and the version read from inside the bytes, which must be the offered
-  one. The gate is asked again before the switch: a till may have opened during the download.
+  one. The gate is asked again before the switch: a till may have opened during the download. A TEST
+  build also takes the update keys its field lane names (see Licences, test builds), and logs it.
 - **Air-gapped:** `lgr-server update apply <bundle> --sig <file> [--asc <file>]`, the same checks on a
   copy made in `update/staging/`, switched now and watched.
 - **Seven windows kept by open sessions** raise the alarm: the status's `update.alarm` and the
@@ -449,10 +450,18 @@ release.
 
     Each is a comma-separated list of base64 Ed25519 SPKI DER. On a master they go in
     `config/api.env`, which the API and the supervisor both read.
+  - **Update keys** (`version-skew`: an outdated master updates itself to a version the lane signed):
+    `<root>/update/test-update-keys.json` names a minisign public key (base64 of its `.pub` file, as
+    Tauri writes `updater.pub`) and the ed25519 point of a GPG signing key (64 hex digits), each
+    trusted beside the key the binary carries (`signatures.rs`, `pgp.rs`).
+    - ⚠ Under `update/`, SYSTEM's or root's alone, NEVER `config/api.env`: the helper installs as
+      SYSTEM or root, and the data directory is the service account's to write (AC 59).
+    - Only the two keys: Windows' Authenticode check names a publisher, and a test build is never
+      signed, so a Windows test build does not update itself.
   - Every build embeds that file: the API's bundle (`services/biz/crypto/test-keys.ts`), the
     supervisor (`build_kind.rs`) and the image.
-  - Any other build ignores both variables. A test build says what it is: a warning at every
-    start, `testKeys` in `lgr-server status` and in the package manifest.
+  - Any other build ignores all three. A test build says what it is: a warning at every start (which
+    counts the update keys named), `testKeys` in `lgr-server status` and in the package manifest.
   - ⚠ The committed file says false, and a unit test keeps it so. A test build is never released:
     - `check:package` refuses its package (`--allow-test-keys` lets the lanes' own builds through);
     - the server release workflow refuses the commit in `adopt` and in `package`;

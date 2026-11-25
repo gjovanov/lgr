@@ -282,9 +282,18 @@ fn run_round(runtime: &tokio::runtime::Runtime, shutdown: std::pin::Pin<&mut imp
         };
         tracing::info!(home = %paths.home.display(), package = %paths.package.display(), data = %paths.data.display(), "starting");
         if build_kind::test_keys() {
+            // The update keys are read where the helper reads them: under the install root's `update/`.
+            let update_keys = match install::Root::here() {
+                Some(root) => {
+                    let (minisign, gpg) = signatures::UpdateKeys::for_root(&root).test_counts();
+                    format!("{minisign} minisign and {gpg} GPG")
+                }
+                None => "none: no install root".to_string(),
+            };
             tracing::warn!(
-                "a TEST build (config/src/build-kind.json): it trusts the licence keys named in {} (config/api.env). It must never serve a real org",
-                licence::TEST_KEYS_ENV
+                "a TEST build (config/src/build-kind.json): it trusts the licence keys named in {} (config/api.env) and the update keys named in update/{} ({update_keys}). It must never serve a real org",
+                licence::TEST_KEYS_ENV,
+                signatures::TEST_UPDATE_KEYS_FILE
             );
         }
         // FR-20.13: a machine that cannot run a master is told why, before anything starts. Only what
