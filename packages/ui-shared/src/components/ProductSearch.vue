@@ -56,7 +56,7 @@
 <script setup lang="ts">
 import { formatNumber, intlLocale } from '../format/format'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { latestOnly } from '../composables/latest-only'
+import { useFieldSearch } from '../composables/field-search'
 import { useAccess } from '../access/useAccess'
 import { useI18n } from 'vue-i18n'
 import {
@@ -106,17 +106,35 @@ const products = ref<ProductResult[]>([])
 const total = ref(0)
 const hitStock = ref<Record<string, HitStock>>({})
 const stockLoading = ref(false)
-const loading = ref(false)
 const menuOpen = ref(false)
 const selectedProduct = ref<ProductResult | null>(null)
-let debounceTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * FR-31.4: only the answer to the latest search reaches the list; a slow earlier one is dropped, and so is an answer
+ * to a text the field no longer holds. FR-33.12: Enter takes only an answer to what the field holds (`onEnter`).
+ */
+const field = useFieldSearch({
+  search: (signal, query: string) => searchProductHits(props.orgUrl, query, signal),
+  onAnswer: (found, query) => {
+    products.value = found.products.map((p: any) => ({
+      ...p,
+      displayName: `${p.name} (${p.sku})`,
+    }))
+    total.value = found.total
+    void loadStockOfHits(query)
+  },
+  minChars: SEARCH_MIN_CHARS,
+  debounceMs: SEARCH_DEBOUNCE_MS,
+})
+const loading = field.loading
+onBeforeUnmount(() => field.cancel())
 
 /**
  * The catalog has answered for exactly what is typed now. Until then the list is the previous
  * query's (or empty), and offering to create the article would invite creating one that exists:
  * a quick click on „+ Нов продукт „PRD-0013"" before the search returned PRD-0013 itself.
  */
-const answeredFor = ref('')
+const answeredFor = field.answeredFor
 const answered = computed(() => !loading.value && answeredFor.value === String(searchQuery.value || '').trim())
 
 /** Results came back, but none is called what was typed: the new article is still one click away. */
@@ -174,11 +192,47 @@ async function loadStockOfHits(forQuery: string) {
 // the autocomplete does, and leaves the autocomplete's own markup and key handling alone.
 const autocomplete = ref<{ $el?: HTMLElement } | null>(null)
 function onFieldKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') return onEnter(e)
   if (e.key !== 'F4') return
   e.preventDefault()
   e.stopPropagation()
   menuOpen.value = false
   emit('details', String(searchQuery.value || ''))
+}
+
+/**
+ * FR-33.12: Enter in the field takes the first hit of what it holds, as on an invoice line. ↓ moves the focus into the
+ * list, where Enter takes the row it is on (the list is not inside this root). While the answer to the typed text is
+ * on its way, Enter waits for it and takes its first row: never a row of an earlier text's list. With no hit, or no
+ * answer on its way, Enter does what it did (the autocomplete opens the list). Tab still leaves without a pick
+ * (no `auto-select-first`). A key the line grid already took (its menu closed) stays the grid's.
+ */
+function onEnter(e: KeyboardEvent) {
+  if (e.defaultPrevented || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return
+  const text = String(searchQuery.value || '')
+  if (field.answers(text)) {
+    if (!products.value.length) return
+    e.preventDefault()
+    e.stopPropagation()
+    takeHit(products.value[0])
+    return
+  }
+  if (!field.waiting.value) return
+  e.preventDefault()
+  e.stopPropagation()
+  void field.enter(text).then((took) => {
+    if (!took || String(searchQuery.value || '') !== text) return
+    if (products.value.length) takeHit(products.value[0])
+    else menuOpen.value = true
+  })
+}
+
+/** A hit taken by the keyboard: what a click on its row does. */
+function takeHit(p: ProductResult) {
+  selectedProduct.value = p
+  menuOpen.value = false
+  searchQuery.value = ''
+  onSelect(p)
 }
 onMounted(() => autocomplete.value?.$el?.addEventListener('keydown', onFieldKeydown, true))
 onBeforeUnmount(() => autocomplete.value?.$el?.removeEventListener('keydown', onFieldKeydown, true))
@@ -207,40 +261,11 @@ syncFromInitial(props.initialProduct)
 watch(() => props.initialProduct, (p) => syncFromInitial(p))
 
 watch(searchQuery, (q) => {
-  if (debounceTimer) clearTimeout(debounceTimer)
-  if (!q || q.length < SEARCH_MIN_CHARS) {
-    // A search still on its way answers a question nobody asks any more.
-    search.cancel()
-    loading.value = false
-    products.value = selectedProduct.value ? [selectedProduct.value] : []
-    total.value = 0
-    return
-  }
-  debounceTimer = setTimeout(() => fetchProducts(q), SEARCH_DEBOUNCE_MS)
+  // Too short: a search still on its way answers a question nobody asks any more.
+  if (field.input(q)) return
+  products.value = selectedProduct.value ? [selectedProduct.value] : []
+  total.value = 0
 })
-
-/** FR-31.4: only the answer to the latest search reaches the list; a slow earlier one is dropped. */
-const search = latestOnly((signal, orgUrl: string, query: string) => searchProductHits(orgUrl, query, signal))
-onBeforeUnmount(() => search.cancel())
-
-async function fetchProducts(query: string) {
-  loading.value = true
-  try {
-    const answer = await search(props.orgUrl, query)
-    // A newer search owns the list and the spinner.
-    if (!answer.latest) return
-    products.value = answer.value.products.map((p: any) => ({
-      ...p,
-      displayName: `${p.name} (${p.sku})`,
-    }))
-    total.value = answer.value.total
-    answeredFor.value = query.trim()
-    void loadStockOfHits(query.trim())
-    loading.value = false
-  } catch {
-    loading.value = false
-  }
-}
 
 function onSelect(product: ProductResult | null) {
   if (product) {
