@@ -865,6 +865,14 @@ fn real_main(cli: Cli) -> Result<i32> {
                     let state = u.get("state").and_then(|v| v.as_str()).unwrap_or("?");
                     let available = u.get("available").and_then(|v| v.as_str()).map(|v| format!(" {v} available")).unwrap_or_default();
                     let reason = u.get("reason").and_then(|v| v.as_str()).map(|r| format!(" ({r})")).unwrap_or_default();
+                    // #952: the helper's last attempt failed: what, and when it is tried again.
+                    let reason = match u.get("error").and_then(|v| v.as_str()) {
+                        Some(e) => {
+                            let next = u.get("nextTryAt").and_then(|v| v.as_str()).map(|t| format!(", next try {t}")).unwrap_or_default();
+                            format!(" (last attempt failed: {e}{next}){reason}")
+                        }
+                        None => reason,
+                    };
                     let alarm = if u.get("alarm").and_then(|v| v.as_bool()) == Some(true) {
                         format!("  ALARM: kept out by open tills through {} windows", u.get("blockedWindows").and_then(|v| v.as_u64()).unwrap_or(0))
                     } else {

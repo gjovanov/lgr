@@ -401,7 +401,8 @@ mod linux {
                 tonight: tonight.as_deref(),
                 last_night: last.as_ref().map(|l| l.night.as_str()),
                 watching: watching.as_deref(),
-                update_installing: sup.status()["update"]["state"] == "installing",
+                // #952: an update that fails every night (`failing`) never holds it.
+                update_installing: crate::updates::holds_night_restart(&sup.status()["update"]),
                 binary_gone: binary_gone(),
                 pos_open,
                 fiscal_in_flight,

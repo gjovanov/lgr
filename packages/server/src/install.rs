@@ -32,6 +32,8 @@ use std::path::{Path, PathBuf};
 
 /// The update state's file under `update/`.
 pub const STATE_FILE: &str = "state.json";
+/// The helper's last attempt at an update under `update/` (#952).
+pub const LAST_ATTEMPT_FILE: &str = "last-attempt.json";
 /// What the package installs the bootstrap and its bundle into.
 pub const INSTALLER_DIR: &str = "installer";
 pub const VERSIONS_DIR: &str = "versions";
@@ -513,6 +515,55 @@ impl UpdateState {
     }
 }
 
+/// The helper's last look for an update that got as far as trying (#952), `update/last-attempt.json`:
+/// the version, when, and what went wrong. `failed` holds only versions switched to and rolled back;
+/// a download refused, a bundle that does not verify, or no backup before the switch is said here,
+/// and the supervisor's status reads it (`failing`). The next attempt writes over it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LastAttempt {
+    /// The version offered. Empty when the attempt failed before the offer was read (global's answer
+    /// for the offer itself).
+    pub version: String,
+    /// Unix seconds.
+    pub at: i64,
+    /// What went wrong, in words; none when the attempt switched, or installed the version for the
+    /// next chance to switch.
+    pub error: Option<String>,
+}
+
+/// The longest error kept: an anyhow chain of a TLS failure can run long, and the status carries it.
+const ATTEMPT_ERROR_MAX: usize = 500;
+
+impl LastAttempt {
+    pub fn file(root: &Root) -> PathBuf {
+        root.update().join(LAST_ATTEMPT_FILE)
+    }
+
+    pub fn ok(version: &str) -> Self {
+        Self { version: version.to_string(), at: now_secs(), error: None }
+    }
+
+    pub fn failed(version: &str, error: &str) -> Self {
+        let error = match error.char_indices().nth(ATTEMPT_ERROR_MAX) {
+            Some((cut, _)) => format!("{}…", &error[..cut]),
+            None => error.to_string(),
+        };
+        Self { version: version.to_string(), at: now_secs(), error: Some(error) }
+    }
+
+    /// None when there is none, or it cannot be read: the status then says what it said before #952.
+    pub fn load(root: &Root) -> Option<Self> {
+        serde_json::from_str(&std::fs::read_to_string(Self::file(root)).ok()?).ok()
+    }
+
+    /// Whole or not at all, like the state: the service account reads it, and never half of it.
+    pub fn save(&self, root: &Root) -> Result<()> {
+        readable_dir(&root.update())?;
+        crate::config::write_durable(&Self::file(root), (serde_json::to_string_pretty(self)? + "\n").as_bytes(), 0o644)
+    }
+}
+
 /// What a switch to `candidate` will be. Who restarts the service is the caller's business: the MSI
 /// does (its upgrade stops the service anyway), the .deb never does (an upgrade must not bounce a
 /// till mid-sale: the new version runs from the next start), the helper does in its window.
@@ -638,6 +689,29 @@ mod tests {
 
     fn state(current: &str, lkg: &str) -> UpdateState {
         UpdateState { current: current.into(), last_known_good: lkg.into(), ..Default::default() }
+    }
+
+    /// #952: the helper's last attempt is written whole, read back, and its error kept short.
+    #[test]
+    fn the_last_attempt_is_written_whole_and_read_back() {
+        let t = tempfile::tempdir().unwrap();
+        let root = Root(t.path().to_path_buf());
+        assert_eq!(LastAttempt::load(&root), None);
+        let failed = LastAttempt::failed("0.1.913", "the download failed: global answered 401 Unauthorized");
+        failed.save(&root).unwrap();
+        assert_eq!(LastAttempt::load(&root), Some(failed.clone()));
+        let text = std::fs::read_to_string(LastAttempt::file(&root)).unwrap();
+        assert!(text.contains("\"version\": \"0.1.913\"") && text.contains("\"at\"") && text.contains("401 Unauthorized"), "{text}");
+        assert!(!root.update().join("last-attempt.json.tmp").exists());
+        // A later attempt that went well writes over it.
+        LastAttempt::ok("0.1.913").save(&root).unwrap();
+        assert_eq!(LastAttempt::load(&root).unwrap().error, None);
+        // A long error is cut, on a character.
+        let long = LastAttempt::failed("", &"я".repeat(2000));
+        assert_eq!(long.error.as_ref().unwrap().chars().count(), ATTEMPT_ERROR_MAX + 1);
+        // A damaged file is none, never an error.
+        std::fs::write(LastAttempt::file(&root), "{").unwrap();
+        assert_eq!(LastAttempt::load(&root), None);
     }
 
     /// `installer/lgr-server preflight`: the installer's copy has no `bin/`, the version that runs

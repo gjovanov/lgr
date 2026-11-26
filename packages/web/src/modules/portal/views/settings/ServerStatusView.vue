@@ -28,7 +28,7 @@
                 <dd><v-chip v-for="c in s.supervisor?.children ?? []" :key="c.name" size="x-small" :color="c.state === 'running' ? 'success' : 'error'" variant="tonal" class="mr-1">{{ c.name }}: {{ c.state }}</v-chip></dd>
                 <dt>{{ $t('serverStatus.disk') }}</dt><dd>{{ diskText }}</dd>
                 <dt>{{ $t('serverStatus.oplog') }}</dt><dd>{{ s.supervisor?.oplogWindowSecs != null ? duration(s.supervisor.oplogWindowSecs) : $t('serverStatus.oplogNotFull') }}</dd>
-                <dt>{{ $t('serverStatus.update') }}</dt><dd :class="s.supervisor?.update?.alarm || s.supervisor?.update?.suptoWaiting ? 'text-error' : undefined">{{ updateText }}</dd>
+                <dt>{{ $t('serverStatus.update') }}</dt><dd :class="updateAlarmed(s.supervisor?.update) || s.supervisor?.update?.suptoWaiting ? 'text-error' : undefined">{{ updateText }}</dd>
                 <!-- #356/#380: another machine at this server's LAN address; #373: the night restart open tills keep out. -->
                 <template v-if="s.supervisor?.addressCheck">
                   <dt>{{ $t('serverStatus.address') }}</dt><dd :class="s.supervisor.addressCheck.conflict?.current ? 'text-error' : undefined" data-test="server-address">{{ addressText }}</dd>
@@ -217,6 +217,7 @@ import { useNodeAlarms } from 'ui-shared/composables/useNodeAlarms'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useAppStore } from '../../store/app.store'
 import LastNumbersCard from './LastNumbersCard.vue'
+import { updateAlarmed, updateLine } from './update-line'
 
 /**
  * A master's own status page (FR-20.98, FR-20.50, plan step P3-8b): on the server, for the org's
@@ -244,12 +245,10 @@ const diskText = computed(() => {
 const updateText = computed(() => {
   const u = s.value?.supervisor?.update
   if (!u) return '—'
-  if (u.state === 'installing') return t('servers.updateInstalling', { version: u.available })
   if (u.state === 'deferred' && u.suptoWaiting) return t('serverStatus.updateSuptoWaits', { version: u.available, supto: u.suptoWaiting })
-  if (u.state === 'deferred') {
-    const waits = t('servers.updateWaits', { version: u.available, reason: u.reason ?? '' })
-    return u.alarm ? `${waits} · ${t('servers.updateAlarm', { n: u.blockedWindows })}` : waits
-  }
+  // FR-20.20, #952: installing, waiting (and its alarm), or failing (and its next try).
+  const line = updateLine(u, t)
+  if (line) return line
   if (u.state === 'not-versioned') return t('serverStatus.updateNotVersioned')
   return t('serverStatus.updateUpToDate', { running: u.running ?? '—' })
 })

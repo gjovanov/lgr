@@ -259,12 +259,8 @@
           <span v-if="item.health">
             <span v-if="typeof item.health.diskFreeBytes === 'number'">{{ $t('servers.diskFree', { gb: (item.health.diskFreeBytes / 2 ** 30).toFixed(1) }) }}</span>
             <span v-if="item.health.apiOk === false" class="text-error"> · {{ $t('servers.apiDown') }}</span>
-            <!-- FR-20.20: an update that waits, and why; the alarm after seven nights kept out. -->
-            <span v-if="item.health.update?.state === 'installing'"> · {{ $t('servers.updateInstalling', { version: item.health.update.available }) }}</span>
-            <span v-if="item.health.update?.state === 'deferred'" :class="item.health.update.alarm ? 'text-error' : undefined">
-              · {{ $t('servers.updateWaits', { version: item.health.update.available, reason: item.health.update.reason }) }}
-              <template v-if="item.health.update.alarm"> · {{ $t('servers.updateAlarm', { n: item.health.update.blockedWindows }) }}</template>
-            </span>
+            <!-- FR-20.20, #952: an update that installs, waits (the alarm after seven nights kept out) or fails (its next try). -->
+            <span v-if="updateLine(item.health.update, t)" :class="updateAlarmed(item.health.update) ? 'text-error' : undefined" data-test="update-line"> · {{ updateLine(item.health.update, t) }}</span>
             <!-- #373: replaced libraries the night restart waits to load, once open tills kept it out seven nights. -->
             <span v-if="item.health.nightRestart?.alarm" class="text-error" data-test="restart-alarm"> · {{ $t('servers.restartAlarm', { n: item.health.nightRestart.blockedNights }) }}</span>
           </span>
@@ -576,6 +572,7 @@ import { announceHomeChanged } from 'ui-shared/composables/useHomeChanged'
 import { useAppStore } from '../../store/app.store'
 import LastNumbersCard from './LastNumbersCard.vue'
 import type { ServerRow } from './servers.types'
+import { updateAlarmed, updateLine } from './update-line'
 
 /**
  * The Servers page (FR-20.2, plan step P2-1): the shop servers (masters) registered for this org,

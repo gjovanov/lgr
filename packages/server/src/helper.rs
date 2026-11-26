@@ -381,8 +381,9 @@ fn sha256_of(file: &Path) -> Result<String> {
 }
 
 /// Look for an update, and switch to it if one is due and verifies: `true` when a switch is now in
-/// flight (watched next).
-fn try_update(root: &Root) -> Result<bool> {
+/// flight (watched next). `tried` names the version once there is one to try (#952: what the last
+/// attempt says it was about).
+fn try_update(root: &Root, tried: &mut Option<String>) -> Result<bool> {
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     let Some(ctx) = ask_context(&rt) else { return Ok(false) };
     if !ctx.open {
@@ -411,6 +412,7 @@ fn try_update(root: &Root) -> Result<bool> {
         tracing::info!(version = %offer.version, supto = %waiting, "not installed: its SUPTO version waits for its declaration");
         return Ok(false);
     }
+    *tried = Some(offer.version.clone());
     // Installed and verified already (a window closed between its download and its switch)?
     if install::verify_home(&root.version_dir(&offer.version)).is_err() {
         let staging = root.staging();
@@ -463,10 +465,8 @@ fn try_update(root: &Root) -> Result<bool> {
             return Ok(false);
         }
     }
-    if let Err(e) = backup_now(&rt) {
-        tracing::error!(version = %offer.version, error = %format!("{e:#}"), "not switched to: no backup was taken first");
-        return Ok(false);
-    }
+    // #952: an error, so the last attempt says so. The version stays installed for a later chance.
+    backup_now(&rt).context("not switched to: no backup was taken first")?;
     let _lock = Lock::take(root, Duration::from_secs(300))?;
     let state = UpdateState::load(root)?;
     let current_ok = !state.current.is_empty() && install::verify_home(&root.version_dir(&state.current)).is_ok();
@@ -484,6 +484,20 @@ fn try_update(root: &Root) -> Result<bool> {
     tracing::info!(version = %offer.version, "switching to an update");
     pointer::restart()?;
     Ok(true)
+}
+
+/// #952: what the supervisor's status reads (`update/last-attempt.json`). A failure is recorded
+/// whatever it was about (one before the offer was read names no version); a look that found
+/// nothing to try writes nothing, so the last real attempt stays said.
+fn record_attempt(root: &Root, tried: Option<&str>, result: &Result<bool>) {
+    let attempt = match (result, tried) {
+        (Err(e), v) => install::LastAttempt::failed(v.unwrap_or_default(), &format!("{e:#}")),
+        (Ok(_), Some(v)) => install::LastAttempt::ok(v),
+        (Ok(_), None) => return,
+    };
+    if let Err(e) = attempt.save(root) {
+        tracing::warn!(error = %format!("{e:#}"), "the update attempt could not be recorded: the supervisor's status says nothing of it");
+    }
 }
 
 /// The helper's work: watch the switch in flight, if there is one, to its end.
@@ -506,7 +520,10 @@ pub fn run(root: &Root) -> Result<()> {
                     drop(_lock);
                     // Nothing to watch: an update, if one is due (P1-8c). A switch made here is
                     // watched on the next turn of the loop.
-                    match try_update(root) {
+                    let mut tried = None;
+                    let result = try_update(root, &mut tried);
+                    record_attempt(root, tried.as_deref(), &result);
+                    match result {
                         Ok(true) => continue,
                         Ok(false) => return Ok(()),
                         Err(e) => {

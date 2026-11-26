@@ -4655,6 +4655,8 @@
     "updateInstalling": "installing {version}",
     "updateWaits": "{version} waits: {reason}",
     "updateAlarm": "kept out by open tills for {n} nights",
+    "updateFailing": "{version} fails to install: {error}",
+    "updateNextTry": "next try {when}",
     "restartAlarm": "replaced system libraries wait for the night restart, kept out by open tills for {n} nights",
     "cloneAlarm": "Clone alarm",
     "wentBack": "Database went back",

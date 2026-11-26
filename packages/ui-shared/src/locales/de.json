@@ -4655,6 +4655,8 @@
     "updateInstalling": "installiert {version}",
     "updateWaits": "{version} wartet: {reason}",
     "updateAlarm": "seit {n} Nächten durch offene Kassen aufgehalten",
+    "updateFailing": "{version} lässt sich nicht installieren: {error}",
+    "updateNextTry": "nächster Versuch {when}",
     "restartAlarm": "ersetzte Systembibliotheken warten auf den nächtlichen Neustart, seit {n} Nächten durch offene Kassen aufgehalten",
     "cloneAlarm": "Klon-Alarm",
     "wentBack": "Datenbank zurückgesetzt",

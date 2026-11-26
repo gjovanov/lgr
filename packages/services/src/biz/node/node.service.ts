@@ -555,7 +555,13 @@ const skewOf = (v: unknown, at: Date) => {
 const ver = (v: unknown) => (typeof v === 'string' && /^\d{1,6}\.\d{1,6}\.\d{1,6}(-[0-9A-Za-z.-]{1,40})?$/.test(v) ? v : undefined)
 /** FR-20.50: a SUPTO version (`SUPTO_VERSION_RE`), or the word a master uses for a release that names none. */
 const supto = (v: unknown) => (typeof v === 'string' && (v === 'unknown' || SUPTO_VERSION_RE.test(v)) ? v : undefined)
-const UPDATE_STATES = ['up-to-date', 'installing', 'deferred', 'not-versioned'] as const
+/** #952: `failing`, the helper's last attempt at the version offered failed. A server from before it never sends it. */
+const UPDATE_STATES = ['up-to-date', 'installing', 'deferred', 'failing', 'not-versioned'] as const
+/** A time a master says is ahead (its next try), kept only when it is one, and never more than a week out. */
+const ahead = (v: unknown, now: Date) => {
+  const d = typeof v === 'string' ? new Date(v) : null
+  return d && Number.isFinite(d.getTime()) ? new Date(Math.min(d.getTime(), now.getTime() + 7 * 86_400_000)) : undefined
+}
 
 const IPV4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/
 const MAC = /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/
@@ -588,7 +594,7 @@ function sanitizeNightRestart(v: any, at: Date) {
  * FR-20.20 (plan step P1-8e): what a master says about its own updates, kept for the Servers page:
  * what runs, what waits, why, and the alarm after seven windows kept out by open tills.
  */
-function sanitizeUpdate(u: any) {
+function sanitizeUpdate(u: any, at: Date) {
   if (!u || typeof u !== 'object') return undefined
   const state = (UPDATE_STATES as readonly string[]).includes(u.state) ? u.state : undefined
   if (!state) return undefined
@@ -596,6 +602,8 @@ function sanitizeUpdate(u: any) {
     state, running: ver(u.running), available: ver(u.available), reason: str(u.reason, 160), blockedWindows: num(u.blockedWindows, 1000), alarm: bool(u.alarm),
     // FR-20.50 (P3-8c): the SUPTO version that runs, and the one an update waits for (an alarm).
     supto: supto(u.supto), suptoWaiting: supto(u.suptoWaiting),
+    // #952: what the helper's last attempt said, when it failed, and when it is tried again.
+    error: str(u.error, 200), failedAt: when(u.failedAt, at), nextTryAt: ahead(u.nextTryAt, at),
   }
 }
 
@@ -636,7 +644,7 @@ export function sanitizeHealth(frame: any, at = new Date()): Record<string, unkn
       fenced: num(frame?.api?.fenced, 1e4),
       outboxQueued: num(frame?.api?.outboxQueued, 1e9),
     },
-    update: sanitizeUpdate(frame?.update),
+    update: sanitizeUpdate(frame?.update, at),
     // #356/#380: another machine at its LAN address (an alarm), and #373: the night restart that
     // open tills keep out (an alarm after seven nights).
     address: sanitizeAddress(frame?.address, at),
@@ -738,7 +746,11 @@ export function nodeToWire(n: any) {
           posOpen: n.health.api?.posOpen,
           clockTrusted: n.health.api?.clockTrusted,
           update: n.health.update
-            ? { state: n.health.update.state, available: n.health.update.available, reason: n.health.update.reason, blockedWindows: n.health.update.blockedWindows, alarm: !!n.health.update.alarm, supto: n.health.update.supto, suptoWaiting: n.health.update.suptoWaiting }
+            ? {
+                state: n.health.update.state, available: n.health.update.available, reason: n.health.update.reason, blockedWindows: n.health.update.blockedWindows, alarm: !!n.health.update.alarm, supto: n.health.update.supto, suptoWaiting: n.health.update.suptoWaiting,
+                // #952: a failing update's error and its next try.
+                error: n.health.update.error, failedAt: n.health.update.failedAt, nextTryAt: n.health.update.nextTryAt,
+              }
             : undefined,
           // #356/#380: the conflict itself is an alarm (`node-alarms.ts`); this is what the row says.
           address: n.health.address ? { on: n.health.address.on, reason: n.health.address.reason, conflict: n.health.address.conflict } : undefined,

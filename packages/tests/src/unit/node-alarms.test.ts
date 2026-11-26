@@ -135,6 +135,22 @@ describe('what lgrai.app keeps of a health frame for them (P3-8)', () => {
     expect((sanitizeHealth({}, at) as any).address).toBeUndefined()
   })
 
+  it('a failing update: its error cut short, when it failed (never after now), its next try (never past a week) (#952)', () => {
+    const at = new Date('2026-11-26T03:00:00Z')
+    const h: any = sanitizeHealth({
+      update: { state: 'failing', running: '0.1.912', available: '0.1.913', error: `the download failed: global answered 401 Unauthorized${'!'.repeat(400)}`, failedAt: '2026-11-26T02:05:00Z', nextTryAt: '2026-11-26T03:05:00Z', reason: null, blockedWindows: 0, alarm: false, supto: '1' },
+    }, at)
+    expect(h.update).toEqual({
+      state: 'failing', running: '0.1.912', available: '0.1.913', blockedWindows: 0, alarm: false, supto: '1',
+      error: `the download failed: global answered 401 Unauthorized${'!'.repeat(200 - 53)}`,
+      failedAt: new Date('2026-11-26T02:05:00Z'), nextTryAt: new Date('2026-11-26T03:05:00Z'),
+    })
+    const odd: any = sanitizeHealth({ update: { state: 'failing', available: '0.1.913', failedAt: '2030-01-01T00:00:00Z', nextTryAt: '2030-01-01T00:00:00Z', error: 7 } }, at)
+    expect(odd.update).toEqual({ state: 'failing', available: '0.1.913', failedAt: at, nextTryAt: new Date(at.getTime() + 7 * 86_400_000) })
+    // A server from before #952 sends none of it: kept as before.
+    expect((sanitizeHealth({ update: { state: 'installing', available: '0.1.913' } }, at) as any).update).toEqual({ state: 'installing', available: '0.1.913' })
+  })
+
   it('the night restart: only while something waits, its count bounded (#373)', () => {
     const at = new Date('2026-10-30T02:00:00Z')
     const h: any = sanitizeHealth({ nightRestart: { pending: true, since: '2026-10-22T07:00:00Z', waiting: 'waits: 2 POS session(s) open', blockedNights: 7, alarm: true, libraries: ['/usr/lib/libssl.so.3'] } }, at)

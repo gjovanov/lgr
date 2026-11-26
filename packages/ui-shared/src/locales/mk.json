@@ -4655,6 +4655,8 @@
     "updateInstalling": "инсталира {version}",
     "updateWaits": "{version} чека: {reason}",
     "updateAlarm": "{n} ноќи задржано од отворени каси",
+    "updateFailing": "{version} не се инсталира: {error}",
+    "updateNextTry": "нов обид {when}",
     "restartAlarm": "заменети системски библиотеки го чекаат ноќниот рестарт, задржан од отворени каси {n} ноќи",
     "cloneAlarm": "Аларм за клон",
     "wentBack": "Базата се врати назад",
