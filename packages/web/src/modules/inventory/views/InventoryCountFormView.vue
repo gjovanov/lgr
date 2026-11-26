@@ -417,6 +417,8 @@ async function fetchItem() {
       counted.value = countedOf(form.value.lines)
     })
     storedLineCount.value = detail.lines?.length ?? 0
+    // FR-33.11: each line carries its article's unit (a server without the key leaves it to `describeLines`).
+    units.value = new Map((detail.lines || []).filter((l) => typeof l.productUnit === 'string').map((l): [string, string] => [String(l.productId), l.productUnit || '']))
     void describeLines()
   } catch (e: any) {
     loadFailed(e)
@@ -426,15 +428,18 @@ async function fetchItem() {
 }
 
 /**
- * A saved count's lines carry no unit, and say nothing of a level the warehouse lacks: both are read once, from the
- * warehouse's lean levels (the read "Load products" makes), and the articles with no level from the catalogue.
- * Context only: a refusal leaves them blank.
+ * A saved count's lines say nothing of a level the warehouse lacks: that is read once, from the warehouse's lean levels
+ * (the read "Load products" makes). Their units come with the count's read (FR-33.11); only a draft restored on this
+ * device, whose lines kept none, has the catalogue read for the units of the articles with no level. Context only: a
+ * refusal leaves them blank.
  */
 async function describeLines() {
   const warehouseId = form.value.warehouseId
-  const unknown = form.value.lines.map((l) => String(l.productId)).filter((id) => !units.value.has(id))
-  if (!warehouseId || !unknown.length) return
-  const found = await describeCountLines(warehouseId, unknown)
+  const ids = form.value.lines.map((l) => String(l.productId))
+  const unitsKnown = ids.every((id) => units.value.has(id))
+  // A completed count shows no "not stocked here": with every unit known, there is nothing to read.
+  if (!warehouseId || !ids.length || (readonly.value && unitsKnown)) return
+  const found = await describeCountLines(warehouseId, ids, units.value)
   const u = new Map(units.value)
   for (const [id, unit] of found.units) u.set(id, unit)
   units.value = u

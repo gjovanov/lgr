@@ -8,7 +8,7 @@ import { createApiApp } from '../../../api/src/api.js'
 import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { config } from 'config'
 import { mongoose } from 'db/connection'
-import { Account, Contact, Invoice, Product, StockLevel, StockMovement, User } from 'db/models'
+import { Account, Contact, InventoryCount, Invoice, Product, StockLevel, StockMovement, User } from 'db/models'
 import { tokenize } from 'services/biz/auth.service'
 import { LIST_CEILING, LIST_ROW_EXCLUDES } from 'config/list-rows'
 
@@ -294,5 +294,22 @@ describe('FR-30.10: a document names its lines\' articles', () => {
     expect(json.invoice.lines[0].productSku).toBe('PRJ-000')
     // The line itself is as stored.
     expect(json.invoice.lines[0]).toMatchObject({ description: 'Болт DIN 933 М8Х25 ZN поцинкован 0', quantity: 1, unit: 'бр.' })
+  })
+
+  it("a stock count's read carries each line's article: name, SKU, barcode and unit (FR-33.2, FR-33.11)", async () => {
+    const countId = oid()
+    await InventoryCount.collection.insertOne({
+      _id: countId, orgId: new mongoose.Types.ObjectId(orgId), countNumber: 'IC-2026-00001', warehouseId: warehouse, date: new Date(),
+      status: 'in_progress', type: 'partial', createdBy: oid(), createdAt: new Date(), updatedAt: new Date(),
+      lines: [0, 1].map((i) => ({ _id: oid(), productId: articleIds[i], systemQuantity: i, countedQuantity: i, variance: 0, varianceCost: 0 })),
+    } as any)
+    const { status, json } = await get(`/warehouse/inventory-count/${countId}`)
+    expect(status).toBe(200)
+    expect(json.inventoryCount.lines.map((l: any) => [l.productName, l.productSku, l.productBarcode, l.productUnit])).toEqual([
+      ['Болт 0', 'PRJ-000', '', 'бр.'],
+      ['Болт 1', 'PRJ-001', '', 'бр.'],
+    ])
+    // The line itself is as stored.
+    expect(json.inventoryCount.lines[1]).toMatchObject({ systemQuantity: 1, countedQuantity: 1, variance: 0 })
   })
 })

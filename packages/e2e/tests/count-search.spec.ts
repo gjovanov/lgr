@@ -11,6 +11,8 @@ import { openSelect } from './helpers/vuetify'
  * Counted and a fresh entry line; an article already on the count shows its line; Details adds several with one stock
  * request; the warehouse is locked while the count has lines; "Load products" on a count with lines adds what is
  * missing (D-1); Complete saves first; and the keyboard walks the Counted column, of a 25 000-line count too.
+ * FR-33.11: a scanned code that names one article is added with no list, or shows its line; a scanned code that names
+ * several leaves the list open; a text typed by hand is FR-33.12's first hit.
  *
  * The articles this spec makes carry a stamp of their own and no stock: they are "found goods" in every warehouse.
  * A count it makes is deleted, except the one it completes, which books only its own article.
@@ -151,6 +153,72 @@ test('the search on a new count: the hit row, a pick, the cursor in Counted, a r
   await lineOf(page, level.productId).getByTestId('count-remove').click()
   await expect(lineRows(page)).toHaveCount(0)
   await expect(warehouseField).not.toHaveClass(/v-input--disabled/)
+})
+
+test('a scanner: a barcode is added with no list, scanned again it shows its line, and a typed text takes the first hit (FR-33.11)', async ({ page }) => {
+  const fx = await fixture()
+  const session = await apiLogin()
+  const { warehouse } = await stockedWarehouse(session)
+  const barcode = `2${String(Date.now()).slice(-9)}${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`
+  const made = await apiPost(session, '/warehouse/product', {
+    // No stamp in it: the typed and scanned searches for the fixture's stamp below must not find it.
+    sku: `E2E-SCAN-${barcode}`, barcode, name: `E2E Scan ${barcode}`, category: 'Test', type: 'goods', unit: 'pcs',
+    sellingPrice: 10, purchasePrice: 5, taxRate: 20,
+  })
+  expect(made.status, `the scanned article: ${made.status}`).toBeLessThan(300)
+  const scanId: string = (await made.json()).product._id
+
+  await loginForApp(page)
+  await page.goto('/inventory/inventory-counts/new')
+  await chooseWarehouse(page, warehouse.name)
+  const lookups: string[] = []
+  page.on('response', (r: any) => { if (r.url().includes('/warehouse/product/lookup')) lookups.push(new URL(r.url()).searchParams.get('code') || '') })
+  const listRows = page.locator('.v-overlay--active .v-list-item')
+
+  // A scanner types the code in a burst and presses Enter. A code that names several articles is never guessed: the
+  // list stays open on it and nothing is added.
+  await entryInput(page).click()
+  await page.keyboard.type(`${PREFIX}-${fx.stamp}`)
+  await page.keyboard.press('Enter')
+  await expect.poll(() => lookups.length).toBe(1)
+  await expect(listRows.first()).toContainText(fx.stamp, { timeout: 10000 })
+  await expect(lineRows(page)).toHaveCount(0)
+  await expect(entryInput(page)).toHaveValue(`${PREFIX}-${fx.stamp}`)
+  await entryInput(page).fill('')
+
+  // A scanned barcode names one article: it is added with no list, and what follows is a pick's (FR-33.6): System
+  // (found goods: 0), Counted = System, the cursor in Counted, a fresh entry line.
+  await page.keyboard.type(barcode)
+  await page.keyboard.press('Enter')
+  await expect(lineOf(page, scanId)).toBeVisible({ timeout: 10000 })
+  expect(lookups).toEqual([`${PREFIX}-${fx.stamp}`, barcode])
+  await expect(listRows).toHaveCount(0)
+  await expect(qtyOf(page, scanId)).toBeFocused()
+  await expect(qtyOf(page, scanId)).toHaveValue('0')
+  await expect(lineOf(page, scanId).getByTestId('count-not-stocked')).toBeVisible()
+  await expect(entryInput(page)).toHaveValue('')
+  await page.keyboard.press('3')
+  await expect(qtyOf(page, scanId)).toHaveValue('3')
+
+  // The same barcode scanned again: no second line; its line is shown with the cursor in its Counted (FR-33.7, D-2).
+  await entryInput(page).click()
+  await page.keyboard.type(barcode)
+  await page.keyboard.press('Enter')
+  await expect(entry(page).getByTestId('count-entry-note')).toHaveText('Already on the count: line 1')
+  await expect(lineRows(page)).toHaveCount(1)
+  await expect(qtyOf(page, scanId)).toBeFocused()
+  await expect(qtyOf(page, scanId)).toHaveValue('3')
+  await expect(entryInput(page)).toHaveValue('')
+
+  // Typed by hand, a text that names several articles is FR-33.12's Enter: the first hit of what the field holds.
+  await entryInput(page).click()
+  await entryInput(page).pressSequentially(`${PREFIX}-${fx.stamp}`, { delay: 120 })
+  await expect(listRows.first()).toContainText(fx.stamp, { timeout: 10000 })
+  const firstTitle = (await listRows.first().locator('.v-list-item-title').innerText()).trim()
+  await page.keyboard.press('Enter')
+  await expect(lineRows(page)).toHaveCount(2)
+  await expect(lineRows(page).nth(1)).toContainText(firstTitle)
+  await expect(entryInput(page)).toHaveValue('')
 })
 
 test('F4 and "Show all": three ticked articles become three lines with one stock request, and the count\'s articles are marked', async ({ page }) => {

@@ -6,20 +6,22 @@
     <td class="text-medium-emphasis text-center"><v-icon size="small">mdi-plus</v-icon></td>
     <td :colspan="colspan">
       <div class="d-flex align-center ga-1">
-        <ProductSearch
-          ref="searchRef"
-          :key="fresh"
-          :org-url="orgUrl"
-          :disabled="!warehouseId"
-          :price-field="null"
-          :stock-warehouse-id="warehouseId"
-          :base-currency="baseCurrency"
-          :locale="locale"
-          class="flex-grow-1"
-          style="max-width: 640px"
-          @product-selected="onPicked"
-          @details="openDetails"
-        />
+        <!-- FR-33.11: Enter in the field is heard here first, before ProductSearch's own (a capture listener on an
+             ancestor runs before the field's): a code that names one article is taken without a list. -->
+        <div ref="fieldRef" class="flex-grow-1" style="max-width: 640px" @keydown.capture="onFieldKeydown">
+          <ProductSearch
+            ref="searchRef"
+            :key="fresh"
+            :org-url="orgUrl"
+            :disabled="!warehouseId"
+            :price-field="null"
+            :stock-warehouse-id="warehouseId"
+            :base-currency="baseCurrency"
+            :locale="locale"
+            @product-selected="onPicked"
+            @details="openDetails"
+          />
+        </div>
         <ProductDetailsButton :disabled="!warehouseId" @click="openDetails('')" />
         <span v-if="!warehouseId" class="text-caption text-medium-emphasis ms-2" data-testid="count-entry-hint">
           {{ $t('warehouse.countLine.needWarehouse') }}
@@ -47,9 +49,11 @@ import { ref } from 'vue'
 import ProductSearch from 'ui-shared/components/ProductSearch.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ProductDetailsButton from 'ui-shared/components/ProductDetailsButton.vue'
+import { lookupProductCode } from '../api/products'
 import type { PickedArticle } from '../composables/count-lines'
+import { CODE_MIN_CHARS, scanPace, useCountScanner } from '../composables/count-scan'
 
-defineProps<{
+const props = defineProps<{
   orgUrl: string
   /** The count's warehouse: the hits' stock, and System. None: the line waits for one. */
   warehouseId: string
@@ -87,6 +91,64 @@ function openDetails(text: string) {
 function onManyPicked(products: PickedArticle[]) {
   fresh.value++
   if (products.length) emit('add', products)
+}
+
+// ── FR-33.11: a scanner. Enter asks what the field's code names (FR-22.55's rule); a code of one article is taken as a
+//    pick is, with no list; anything else typed is FR-33.12's first hit, and anything else scanned leaves the list open.
+const fieldRef = ref<HTMLElement | null>(null)
+const pace = scanPace()
+/** Keys that edit or move in the text: a person typing, never a scanner. */
+const EDIT_KEYS = new Set(['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Home', 'End'])
+/** Set while an Enter is handed on to ProductSearch for its first hit: that one is not looked up again. */
+let handingOn = false
+
+function fieldInput(): HTMLInputElement | null {
+  return fieldRef.value?.querySelector('input') ?? null
+}
+
+const scanner = useCountScanner({
+  text: () => fieldInput()?.value ?? '',
+  lookup: async (code) => (await lookupProductCode(code)).product,
+  onCount: () => props.existingProductIds,
+  taken: (rest) => {
+    // Nothing typed behind the code: a fresh entry line, as after a pick. Otherwise the field keeps the next code.
+    if (!rest) {
+      fresh.value++
+      return
+    }
+    const input = fieldInput()
+    if (!input) return
+    input.value = rest
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  },
+  add: (article) => emit('add', [article]),
+  firstHit: () => {
+    const input = fieldInput()
+    if (!input) return
+    handingOn = true
+    try {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }))
+    } finally {
+      handingOn = false
+    }
+  },
+})
+
+function onFieldKeydown(e: KeyboardEvent) {
+  const input = fieldInput()
+  // Only the field's own keys: ↓ moves the focus into the list, which is not inside this element.
+  if (!input || e.target !== input || handingOn) return
+  if (e.key === 'Enter') {
+    if (e.defaultPrevented || e.isComposing || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return
+    // Too short to be a code, and no Enter before it still in turn: the field's own Enter.
+    if (!scanner.busy() && input.value.trim().length < CODE_MIN_CHARS) return
+    e.preventDefault()
+    e.stopPropagation()
+    void scanner.enter(pace.enter(input.value))
+    return
+  }
+  if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) pace.key(input.value === '')
+  else if (EDIT_KEYS.has(e.key)) pace.edit()
 }
 
 /** The cursor in the search field ("+ Add line", and past the last line). */
