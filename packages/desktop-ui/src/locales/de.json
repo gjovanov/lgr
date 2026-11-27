@@ -66,7 +66,19 @@
       "upToDate": "Dies ist die neueste Version.",
       "updatesManaged": "Updates für diesen Rechner installiert, wer ihn verwaltet.",
       "updateStarted": "Update wird installiert…",
-      "updateDeferred": "Die Kasse ist in Benutzung — das Update wird in Kürze installiert.",
+      "updateDeferred": "Die Kasse ist in Benutzung. Das Update installiert sich von selbst, sobald die Kasse frei ist, oder nach etwa 70 Minuten, wenn sie in Benutzung bleibt.",
+      "updateWaiting": "{version} wartet auf die Installation: Es installiert sich von selbst, sobald die Kasse frei ist.",
+      "updateWaitingRetry": "Der letzte Versuch hat es nicht installiert ({error}). Es versucht es von selbst erneut.",
+      "updateWithdrawn": "{version} wurde nicht installiert: {reason}.",
+      "updateWithdrawnReasons": {
+        "expired": "es hat einen Tag gewartet; drücken Sie erneut auf „Installieren“",
+        "failed": "es ist dreimal hintereinander fehlgeschlagen; Details stehen im Protokoll",
+        "no_update_offered": "der Server bietet es nicht mehr an",
+        "offer_changed": "der Server bietet jetzt eine neuere Version an; drücken Sie auf „Prüfen“",
+        "automatic_updates_off": "automatische Updates wurden ausgeschaltet",
+        "not_an_upgrade": "diese Version ist bereits installiert",
+        "managed": "Updates für diesen Computer installiert, wer ihn verwaltet"
+      },
       "autoUpdateOn": "Automatische Updates sind aktiviert.",
       "autoUpdateOff": "Automatische Updates sind deaktiviert. Updates werden nur installiert, wenn Sie auf Installieren klicken."
     },

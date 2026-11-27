@@ -152,6 +152,21 @@
             {{ $t('shell.overview.upToDate') }}
           </p>
           <p v-else class="text-body-2 text-medium-emphasis mb-0">{{ $t('shell.overview.updatesHint') }}</p>
+          <!--
+            lgr#976: a deferred install is a promise the shell keeps, and the card says it is
+            waiting, so a press of Install on a busy till is never followed by silence.
+          -->
+          <template v-if="updateRequest">
+            <p class="text-body-2 mt-2 mb-0" data-field="update-request">
+              {{ $t('shell.overview.updateWaiting', { version: updateRequest.version }) }}
+            </p>
+            <p v-if="updateRequest.lastError" class="text-caption text-medium-emphasis mb-0" data-field="update-request-error">
+              {{ $t('shell.overview.updateWaitingRetry', { error: updateRequest.lastError }) }}
+            </p>
+          </template>
+          <p v-else-if="updateWithdrawn" class="text-body-2 text-medium-emphasis mt-2 mb-0" data-field="update-withdrawn">
+            {{ $t('shell.overview.updateWithdrawn', { version: updateWithdrawn.version, reason: withdrawnReason }) }}
+          </p>
           <p v-if="updateError" class="text-body-2 text-error mt-2 mb-0">{{ updateError }}</p>
           <p v-if="settings" class="text-caption text-medium-emphasis mt-2 mb-0" data-field="auto-update-state">
             {{ settings.autoUpdate ? $t('shell.overview.autoUpdateOn') : $t('shell.overview.autoUpdateOff') }}
@@ -178,7 +193,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ShellFrame from '../components/ShellFrame.vue'
@@ -197,6 +212,39 @@ const updateError = ref('')
 const dash = '—'
 
 const devices = computed(() => status.value?.bridge.devices ?? [])
+
+/** lgr#976 — the install the shell promised and has not carried out yet. */
+const updateRequest = computed(() => status.value?.update.request ?? null)
+const updateWithdrawn = computed(() => status.value?.update.withdrawn ?? null)
+
+/**
+ * ⚠ `te()` before `t()`, as for device states: a newer shell may withdraw for a reason this build
+ * predates, and the raw code beats a missing-key path.
+ */
+const withdrawnReason = computed(() => {
+  const reason = updateWithdrawn.value?.reason ?? ''
+  const code = reason.split(':')[0]
+  const key = `shell.overview.updateWithdrawnReasons.${code}`
+  return te(key) ? t(key) : reason
+})
+
+/**
+ * While a promise is open the card follows it: the shell carries it out on its own clock, and a
+ * withdrawn one has to say so without a click. ⚠ Only then, so an idle Overview polls nothing.
+ */
+const REQUEST_POLL_MS = 20_000
+let requestPoll: ReturnType<typeof setInterval> | null = null
+watch(updateRequest, (r) => {
+  if (r && !requestPoll) requestPoll = setInterval(() => { void load() }, REQUEST_POLL_MS)
+  if (!r && requestPoll) {
+    clearInterval(requestPoll)
+    requestPoll = null
+  }
+}, { immediate: true })
+onUnmounted(() => {
+  if (requestPoll) clearInterval(requestPoll)
+  requestPoll = null
+})
 
 /**
  * What the Fiscal devices table renders (FR-14.27).
@@ -300,8 +348,10 @@ async function onInstall() {
   updateError.value = ''
   try {
     const outcome = await installUpdate(version)
-    // "deferred" is a success, not a failure: the till was busy and the update waits.
+    // "deferred" is a success, not a failure: the till was busy, and the shell installs the update
+    // itself once it is free (lgr#976). The status now carries that promise; the card shows it.
     showSuccess(outcome === 'deferred' ? t('shell.overview.updateDeferred') : t('shell.overview.updateStarted'))
+    if (outcome === 'deferred') await load()
   } catch (e: any) {
     updateError.value = String(e?.message || e)
   } finally {

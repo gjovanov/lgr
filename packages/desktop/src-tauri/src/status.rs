@@ -115,6 +115,12 @@ pub struct Update {
     /// Below `DESKTOP_MIN_VERSION`: the server will refuse this build (C13).
     pub required: bool,
     pub version: Option<String>,
+    /// lgr#976 — the install the shell promised when the till's use deferred it, until it is carried
+    /// out or withdrawn. The Overview says it is waiting, so a press of Install is never a silence.
+    /// Additive, like `bridge.fiscal`: no schema bump.
+    pub request: Option<crate::update::InstallRequest>,
+    /// lgr#976 — the last promise this run withdrew, and why.
+    pub withdrawn: Option<crate::update::Withdrawn>,
 }
 
 /// Default = unassigned and unmanaged, i.e. **Open LGR** lands on the server's home page and
@@ -185,6 +191,23 @@ mod tests {
         assert_eq!(v["keyStorage"], "none", "an unregistered desktop stores no key");
         assert_eq!(v["update"]["required"], false);
         assert_eq!(v["assignment"]["managed"], false);
+        // lgr#976: present and null while nothing waits, so a strict parser sees the keys.
+        assert!(v["update"].get("request").is_some_and(|r| r.is_null()));
+        assert!(v["update"].get("withdrawn").is_some_and(|w| w.is_null()));
+    }
+
+    #[test]
+    fn a_promised_install_is_reported_in_camel_case() {
+        use crate::update::{InstallRequest, Origin};
+        let mut s = sample();
+        s.update.request = Some(InstallRequest::new("0.1.15", Origin::Button, 1_800_000_000));
+        let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        let r = &v["update"]["request"];
+        assert_eq!(r["version"], "0.1.15");
+        assert_eq!(r["origin"], "button");
+        assert_eq!(r["requestedAt"], 1_800_000_000_i64);
+        assert!(r["lastError"].is_null());
+        assert_eq!(r["failures"], 0);
     }
 
     #[test]

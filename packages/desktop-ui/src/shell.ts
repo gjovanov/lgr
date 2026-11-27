@@ -82,7 +82,18 @@ export interface ShellStatus {
   /** C11 fills this, from the server's `serverTime`. `null` = never measured. */
   clockSkewMs: number | null
   /** C13 fills this. */
-  update: { available: boolean; required: boolean; version: string | null }
+  update: {
+    available: boolean
+    required: boolean
+    version: string | null
+    /**
+     * lgr#976 — the install the shell promised when the till's use deferred it, until it is carried
+     * out or withdrawn. Absent from shells before 0.1.15.
+     */
+    request?: UpdateRequest | null
+    /** lgr#976 — the last promise this run withdrew, and why. */
+    withdrawn?: { version: string; reason: string; at: number } | null
+  }
   /** The desktop's assignment (C06/C07). `managed` means an admin set `startPath`. */
   assignment: { startPath: string | null; managed: boolean }
   /**
@@ -267,6 +278,22 @@ export async function refreshStatus(): Promise<ShellStatus | null> {
   return getStatus()
 }
 
+/**
+ * lgr#976 — a deferred install the shell will carry out itself: at once when the till is free,
+ * forced through at the deferral limit when it never is, kept over a restart for a day.
+ */
+export interface UpdateRequest {
+  version: string
+  /** `button`: someone pressed Install, which stands with automatic updates off. `auto`: the loop's own. */
+  origin: 'button' | 'auto'
+  /** Unix seconds of the first deferral. */
+  requestedAt: number
+  lastAttemptAt: number
+  /** Why the last attempt failed; `null` when it deferred. */
+  lastError: string | null
+  failures: number
+}
+
 export interface UpdateCheck {
   /** A strictly newer version the hub is offering, if any. */
   available: string | null
@@ -289,7 +316,8 @@ export async function checkForUpdates(): Promise<UpdateCheck> {
  * Install a version the hub offered.
  *
  * Answers `"installing"` or `"deferred"` — a till with a fiscal command in flight is not
- * interrupted, and one mid-receipt is never interrupted at all.
+ * interrupted, and one mid-receipt is never interrupted at all. ⚠ `"deferred"` is a promise the
+ * shell keeps (lgr#976): `status.update.request` carries it until the install happens.
  */
 export async function installUpdate(version: string): Promise<string> {
   return invoke<string>('install_update', { version })
