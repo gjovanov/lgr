@@ -8,12 +8,13 @@ import type { Types } from 'mongoose'
 import { clearCollections, setupTestDB, teardownTestDB, testDbUri } from '../setup'
 import { captureRejection } from '../helpers/capture-rejection'
 import { createTestContact, createTestInvoice, createTestOrg, createTestProduct, createTestUser } from '../helpers/factories'
-import { Account, AccountingAnalytic, Invoice, JournalEntry, PostingRule, ProductGroupMap, VatRegisterEntry } from 'db/models'
+import { Account, AccountingAnalytic, AuditLog, Invoice, JournalEntry, Org, PostingRule, Product, ProductGroupMap, VatRegisterEntry } from 'db/models'
 import { importAnalytics, importChart, importJournalMonth } from 'services/biz/accounting-books/import.service'
 import { linkBooks } from 'services/biz/accounting-books/link-books.service'
 import { parseAnalyticsFile } from 'services/biz/accounting-books/plusminus-exports'
 import { seedPostingRules, setPostingRuleActive } from 'services/biz/accounting-books/posting-rule.service'
 import { postShadowSales } from 'services/biz/accounting-books/shadow-sales.service'
+import { NIGHTLY_ACTOR, forgetNightlyRun, holdReason, nightlyWindowOf, shadowNightlyTick } from 'services/biz/accounting-books/shadow-nightly.service'
 import { compareBooksShadowOf } from 'services/biz/accounting-books/books-shadow-compare.service'
 import { loadGroupCosts } from 'services/biz/accounting-books/group-cost.service'
 import { analyticTrialBalance, chronology, documentJournal, mainBook, rebuildBalances, trialBalance } from 'services/biz/accounting-books/books-ledger'
@@ -412,6 +413,114 @@ describe('the seed script', () => {
     expect(out).toMatch(/\s17 {2}the org holds already/)
     expect(out).toMatch(/\s1 {2}to add/)
     expect(await PostingRule.countDocuments({ orgId: world.store.id })).toBe(17)
+  })
+})
+
+describe('the nightly run (FR-25 R3)', () => {
+  // 04:30 in Sofia on 2026-04-02 (summer time): yesterday is 04-01, and the shadow's first month is March.
+  const NIGHT = new Date('2026-04-02T01:30:00.000Z')
+  const NIGHT_WINDOW = { from: '2026-03-01', to: '2026-04-01' }
+  const tick = (over: Parameters<typeof shadowNightlyTick>[0] = {}) => shadowNightlyTick({ now: NIGHT, hour: 4, ...over })
+  const nightRows = (orgId: string) => AuditLog.find({ orgId, 'actor.name': NIGHTLY_ACTOR }).sort({ timestamp: 1 }).lean()
+  const field = (row: any, name: string) => row.changes.find((c: any) => c.field === name)?.newValue
+  /** A posted March, then a night's worth of change: inv2 edited, and inv3's product mapped at last. */
+  async function startedAndChanged() {
+    await postShadowSales(world.store.id, { ...MARCH_RUN, execute: true, by: world.userId })
+    await Invoice.updateOne({ _id: world.docs.inv2 }, { $set: { 'lines.0.quantity': 12, subtotal: 24, taxTotal: 4.8, total: 28.8 } })
+    const p4 = await Product.findOne({ orgId: world.store.id, name: 'ТЕСТОВ АРТИКУЛ 4' }).lean()
+    const g2 = await AccountingAnalytic.findOne({ orgId: world.store.id, path: G2 }).lean()
+    await ProductGroupMap.create({ orgId: world.store.id, productId: p4!._id, analyticId: g2!._id, source: 'accountant', evidenceCount: 1, conflictCount: 0 })
+  }
+
+  beforeEach(() => forgetNightlyRun())
+
+  it('starts no org\'s shadow, and runs only in its hour, once a day', async () => {
+    expect(await tick({ now: new Date('2026-04-02T05:00:00.000Z') })).toEqual({ outcomes: {} })
+    // Both orgs keep books and have documents, but neither holds a shadow posting: a person starts a shadow.
+    expect(await tick()).toEqual({ outcomes: {} })
+    expect(await JournalEntry.countDocuments({ ledger: 'shadow' })).toBe(0)
+
+    await startedAndChanged()
+    // This process ran tonight already: the next tick of the hour leaves it.
+    expect(await tick()).toEqual({ outcomes: {} })
+    expect(await JournalEntry.countDocuments({ ledger: 'shadow' })).toBe(3)
+    expect(nightlyWindowOf(new Date('2026-03-03T00:00:00.000Z'), NIGHT)).toEqual(NIGHT_WINDOW)
+    expect(nightlyWindowOf(new Date('2026-05-10T00:00:00.000Z'), NIGHT)).toBeNull()
+  })
+
+  it('posts what changed anywhere in the shadow\'s window, says so in the org\'s audit trail, and a second night writes nothing', async () => {
+    await startedAndChanged()
+    // The home holds the store's register rows but no shadow entry of its own: only the store is run.
+    expect(await tick()).toEqual({ outcomes: { [world.store.slug]: 'written' } })
+    const entries = await shadowEntries(world.store.id)
+    expect(entries.filter(e => String(e.sourceId) === world.docs.inv2).map(e => e.postingKey))
+      .toEqual([`shadow:invoice:${world.docs.inv2}:1`, `shadow:invoice:${world.docs.inv2}:1:reversal`, `shadow:invoice:${world.docs.inv2}:2`])
+    expect(entries.filter(e => String(e.sourceId) === world.docs.inv3).map(e => e.postingKey)).toEqual([`shadow:invoice:${world.docs.inv3}:1`])
+    // A written entry names its creator: the night's are the org's owner's, as the hand run's on the server are.
+    const owner = String((await Org.findById(world.store.id).lean())!.ownerId)
+    expect(new Set(entries.filter(e => String(e.createdBy) !== world.userId).map(e => String(e.createdBy)))).toEqual(new Set([owner]))
+    expect(entries.filter(e => String(e.createdBy) === owner)).toHaveLength(3)
+
+    const rows = await nightRows(world.store.id)
+    expect(rows.map(r => [r.action, r.userId ?? null, field(r, 'entries'), field(r, 'reversals'), field(r, 'from'), field(r, 'to')]))
+      .toEqual([['create', null, 2, 1, NIGHT_WINDOW.from, NIGHT_WINDOW.to]])
+
+    forgetNightlyRun()
+    expect(await tick()).toEqual({ outcomes: { [world.store.slug]: 'nothing' } })
+    expect(await JournalEntry.countDocuments({ ledger: 'shadow' })).toBe(entries.length)
+    expect(await nightRows(world.store.id)).toHaveLength(1)
+  })
+
+  it('holds a night that would reverse more than its bound: writes nothing, says why, and fails the tick', async () => {
+    await startedAndChanged()
+    const err = await captureRejection(tick({ bound: { floor: 0, share: 0 } }))
+    expect(String(err?.message)).toContain(`${world.store.slug} held: it would reverse 1 of the 3 live postings`)
+    expect(await JournalEntry.countDocuments({ ledger: 'shadow' })).toBe(3)
+    const rows = await nightRows(world.store.id)
+    expect(rows.map(r => [r.action, field(r, 'post'), field(r, 'repost'), field(r, 'live')])).toEqual([['hold', 1, 1, 3]])
+    expect(rows[0].entityName).toContain('wrote nothing: it would reverse 1 of the 3 live postings')
+
+    // The bound: a night's new documents and a few edits always pass; a fifth of the live postings above that does not.
+    const plan = (repost: number, live: number) => ({ actions: { post: 0, repost, reverse: 0, post_and_reverse: 0, none: 0 }, live })
+    expect(holdReason(plan(50, 50))).toBeNull()
+    expect(holdReason(plan(51, 1000))).toBeNull()
+    expect(holdReason(plan(51, 100))).toContain('would reverse 51 of the 100 live postings')
+  })
+
+  it('a night the posting refuses writes nothing and is said, and the other orgs still run', async () => {
+    await postShadowSales(world.store.id, { ...MARCH_RUN, execute: true, by: world.userId })
+    await postShadowSales(world.home.id, { ...MARCH_RUN, execute: true, by: world.userId })
+    await Invoice.updateOne({ _id: world.docs.home1 }, { $set: { 'lines.0.quantity': 2, subtotal: 10, taxTotal: 2, total: 12 } })
+    // A rule added to the seed after the store was seeded: a real run refuses until a person seeds it.
+    await PostingRule.deleteOne({ orgId: world.store.id, code: 'sales.credit_note.cash' })
+    const before = await JournalEntry.countDocuments({ orgId: world.store.id, ledger: 'shadow' })
+
+    const err = await captureRejection(tick())
+    expect(String(err?.message)).toContain(`${world.store.slug} refused: no_rules`)
+    expect(await JournalEntry.countDocuments({ orgId: world.store.id, ledger: 'shadow' })).toBe(before)
+    expect((await nightRows(world.store.id)).map(r => r.action)).toEqual(['refused'])
+    // The home's own night ran regardless.
+    expect((await nightRows(world.home.id)).map(r => [r.action, field(r, 'reversals')])).toEqual([['create', 1]])
+  })
+
+  it('the script runs the same night by hand: a dry run says whether the bound would hold it, and --execute writes it', async () => {
+    const none = await cli('--org', world.store.slug, '--nightly')
+    expect([none.code, none.out]).toEqual([0, expect.stringContaining('holds no shadow posting')])
+
+    await startedAndChanged()
+    const dry = await cli('--org', world.store.slug, '--nightly')
+    expect([dry.code, dry.code ? dry.out : '']).toEqual([0, ''])
+    expect(dry.out).toContain('DRY-RUN — business days 2026-03-01 to ')
+    expect(dry.out).toContain('The nightly bound: within it, the night would be written.')
+    expect(dry.out).not.toContain(SERIES_STORE)
+    expect(await JournalEntry.countDocuments({ ledger: 'shadow' })).toBe(3)
+
+    const run = await cli('--org', world.store.slug, '--nightly', '--execute')
+    expect([run.code, run.code ? run.out : '']).toEqual([0, ''])
+    expect(run.out).toContain('Written: 2 entries, 1 reversals')
+    expect(await JournalEntry.countDocuments({ ledger: 'shadow' })).toBe(6)
+
+    expect((await cli('--org', world.store.slug, '--nightly', '--from', '2026-03-01')).code).toBe(2)
   })
 })
 

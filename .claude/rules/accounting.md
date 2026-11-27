@@ -292,7 +292,8 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
 
 - ⚠ **An override changes nothing until a shadow run covers its day.** The posting hash carries the cost, so the next
   `post-shadow-sales.ts` over its day reverses and reposts what it changes, on their own days. A run over later days
-  only never reaches the sales before them: after an override dated in the past, run the window from its day.
+  only never reaches the sales before them: after an override dated in the past, run the window from its day. Since
+  2026-11-27 the nightly run covers every day of the shadow, so the next night reaches it.
 
 - **The commands.** Accounting → Group costs (or `/org/:orgId/accounting/group-costs`) in the home, then
   `scripts/post-shadow-sales.ts --org <slug> --from <the override's day> --to <day> [--execute]` for each org of the
@@ -339,3 +340,26 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
 
 - **Switching a rule:** `scripts/switch-posting-rule.ts --org <slug> --code <code> --on|--off [--execute]`, then
   `post-shadow-sales.ts` over the months it touches, dry run first.
+
+## The shadow posted each night (2026-11-27, FR-25 R3)
+
+- ⚠ **The nightly run never starts an org's shadow.** It runs every org homed here that holds a shadow posting. An
+  org's first posting is a person's, after its rules are seeded, its products mapped and a dry run read.
+
+- ⚠ **A night covers the whole shadow**, from the first month the org's shadow holds to yesterday (Sofia), so it
+  reaches an edit, a void, a cost the books changed or an override anywhere in it, and a missed night is caught up by
+  the next. A hand run over part of it is still safe: the posting is idempotent.
+
+- ⚠ **A night above the bound writes nothing at all** (`NIGHTLY_BOUND`: more than 50 reversals and more than a fifth
+  of the live postings). It is a rules change, a books import gone wrong or a fault: read the dry run, then post it by
+  hand with `--from`/`--to`, which has no bound.
+
+- ⚠ **A rule added to the seed refuses every night** (`no_rules`) until `seed-posting-rules.ts` adds it, as a hand run
+  does. Each such night is in the org's audit trail.
+
+- **Where it is told:** the org's audit trail, under the system's name `shadow-sales` (`actor`): `create` for a
+  night that wrote, `hold`, `refused`; a night with nothing to write leaves none. The logs (`Nightly shadow posting`)
+  and the scheduler's `failures` count a held, refused or failed night.
+
+- **By hand:** `scripts/post-shadow-sales.ts --org <slug> --nightly [--execute]` is the same night, its window and its
+  bound: a dry run says whether the bound would hold it, and `--execute` exits 3 when it does.

@@ -15,7 +15,7 @@ import { ProductGroupsError, seriesOf } from './product-groups.service.js'
 import { DOC_TYPES, SHADOW_ENTRY_NUMBER_PREFIX } from './registry.js'
 import { DIFFERENCES, costOf, differencesOf, spreadOf, type ComparedLine, type CostDifference, type CostSpread, type Difference } from './shadow-compare.js'
 import {
-  SHADOW_REFUSALS, parseShadowKey, planShadowAction, postShadowSale, shadowPostingKey,
+  SHADOW_REFUSALS, liveRevision, parseShadowKey, planShadowAction, postShadowSale, shadowPostingKey,
   type ExistingShadowEntry, type PartnerFacts, type ProductFacts, type ShadowAction, type ShadowDocument, type ShadowOutcome, type ShadowRefusal,
 } from './shadow-sales.js'
 
@@ -49,6 +49,12 @@ export interface ShadowRunOptions {
   execute?: boolean
   /** The user a written entry names as its creator. Required with `execute`. */
   by?: string
+  /**
+   * Asked with `execute`, once the run is planned and before anything is written: a reason it returns holds the run,
+   * which then writes nothing and says why (`held`). The nightly run's bound (`shadow-nightly.service.ts`). The plan it
+   * judges is the one that would be written, so nothing can change between the judgement and the write.
+   */
+  hold?: (plan: ShadowRunReport) => string | null
 }
 
 type ActionName = ShadowAction['action']
@@ -79,6 +85,8 @@ export interface ShadowRunReport {
   cost: GroupCosts['read']
   /** The org's issued sales documents of the period. */
   documents: number
+  /** Of those, the ones holding a live posting before the run: what its reversals are measured against. */
+  live: number
   posts: number
   refused: Record<ShadowRefusal, number>
   voided: number
@@ -89,6 +97,8 @@ export interface ShadowRunReport {
   periodsToCreate: number
   vatRows: Record<Exclude<VatPlan, 'none'>, number>
   written?: { entries: number; reversals: number; vatRows: number; raced: number }
+  /** Why `hold` stopped a run before it wrote: then nothing is written, and `written` is absent. */
+  held?: string
   check?: SelfCheck
 }
 
@@ -204,7 +214,7 @@ export async function postShadowSales(orgId: string, opts: ShadowRunOptions): Pr
     from: opts.from, to: opts.to,
     rules: { stored: stored.length, active: rules.filter(r => r.isActive).length, fromSeed: unseeded.length },
     cost: cost.read,
-    documents: docs.length, posts: 0, refused: zeroes(SHADOW_REFUSALS), voided: 0,
+    documents: docs.length, live: 0, posts: 0, refused: zeroes(SHADOW_REFUSALS), voided: 0,
     actions: zeroes(['post', 'repost', 'reverse', 'post_and_reverse', 'none'] as const),
     periodClosed: 0, periodsToCreate: 0,
     vatRows: zeroes(['create', 'update', 'remove', 'unchanged', 'frozen'] as const),
@@ -238,6 +248,7 @@ export async function postShadowSales(orgId: string, opts: ShadowRunOptions): Pr
     if ('posting' in outcome) report.posts++
     else report.refused[outcome.refused]++
     checked.push({ id: input.id, type: input.type, number: input.number, day: sofiaDay(input.issueDate), voided: !!voidDay, outcome, doc: d })
+    if (liveRevision(existing.get(input.id) ?? [])) report.live++
     const action = planShadowAction(outcome, existing.get(input.id) ?? [], voidDay)
     const entryDay = 'posting' in outcome ? outcome.posting.entry.date : undefined
     const days = action.action === 'post' ? [entryDay!]
@@ -258,7 +269,11 @@ export async function postShadowSales(orgId: string, opts: ShadowRunOptions): Pr
   report.periodsToCreate = missingDays.size
 
   if (!opts.execute) report.check = await selfCheck(orgId, series, from, to, checked)
-  else report.written = await write(orgId, homeOrg, opts.by!, work)
+  else {
+    const held = opts.hold?.(report) ?? null
+    if (held) report.held = held
+    else report.written = await write(orgId, homeOrg, opts.by!, work)
+  }
   return report
 }
 

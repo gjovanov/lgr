@@ -337,7 +337,8 @@ for (`GET /accounting/group-costs/average`). FR-25 §9, "R3: the accountant's ov
 
 - ⚠ **An override changes nothing until a shadow run covers its day.** The posting hash carries the cost, so the next
   `post-shadow-sales.ts` over its day reverses and reposts what it changes, on their own days. A run over later days
-  only never reaches the sales before them: after an override dated in the past, run the window from its day.
+  only never reaches the sales before them: after an override dated in the past, run the window from its day. Since
+  2026-11-27 the nightly run covers every day of the shadow, so the next night reaches it.
 - **Tests:** `unit/shadow-cost-compare.test.ts` (the restatement: the day's sales at it, a purchase after it, nothing
   on hand, a group the books never held, an opening of its day and one before the first opening, two overrides, a
   unit that is no amount), `integration/group-cost-override.flow.test.ts` (a store's sales post at the home's override
@@ -397,3 +398,29 @@ kind of document, eighteen rules, not fifteen, and `scripts/switch-posting-rule.
 - **Tests:** `unit/shadow-sales.test.ts` (the total on its day, a later receipt, part taken at the counter, a credit
   note, the rule off, two rules), `integration/shadow-sales.flow.test.ts` (the seed's eighteen; posted, switched off
   and reposted without it, the seed leaves it off, an unknown code; the switch script's dry run).
+
+## The shadow posted each night (2026-11-27, FR-25 R3)
+
+The owner's decision of 2026-11-27: the shadow is posted on its own each night after the import, no longer only by a
+person running `post-shadow-sales.ts`. Until then it stood still between hand runs: on 11-27 it was posted through
+11-24, so the comparison said nothing of the days after, and an override took effect only at the next hand run over its
+day. `services/biz/accounting-books/shadow-nightly.service.ts` is the run; the scheduler `shadow-sales` in
+`api/src/unified.ts` starts it at 04:00 in Sofia (`SHADOW_SALES_HOUR`; `SHADOW_SALES_CHECK_INTERVAL_MS` 0 turns it
+off); `scripts/post-shadow-sales.ts --org <slug> --nightly [--execute]` is the same night by hand, and with
+`--execute` exits 3 when the bound holds it. FR-25 §9, "R3: the nightly run, as built".
+- ⚠ **The nightly run never starts an org's shadow.** It runs every org homed here that holds a shadow posting. An
+  org's first posting is a person's, after its rules are seeded, its products mapped and a dry run read.
+- ⚠ **A night covers the whole shadow**, from the first month the org's shadow holds to yesterday (Sofia), so it
+  reaches an edit, a void, a cost the books changed or an override anywhere in it, and a missed night is caught up by
+  the next. A hand run over part of it is still safe: the posting is idempotent.
+- ⚠ **A night above the bound writes nothing at all** (`NIGHTLY_BOUND`: more than 50 reversals and more than a fifth
+  of the live postings). It is a rules change, a books import gone wrong or a fault: read the dry run, then post it by
+  hand with `--from`/`--to`, which has no bound.
+- ⚠ **A rule added to the seed refuses every night** (`no_rules`) until `seed-posting-rules.ts` adds it, as a hand run
+  does. Each such night is in the org's audit trail.
+- **Where it is told:** the org's audit trail, under the system's name `shadow-sales` (`actor`): `create` for a
+  night that wrote, `hold`, `refused`; a night with nothing to write leaves none. The logs (`Nightly shadow posting`)
+  and the scheduler's `failures` count a held, refused or failed night.
+- **Tests:** `integration/shadow-sales.flow.test.ts` (its hour and once a day, no shadow started by it, what changed
+  anywhere in the window, the audit rows, a held night and the bound, a refusal while another org runs, the script's
+  `--nightly`).

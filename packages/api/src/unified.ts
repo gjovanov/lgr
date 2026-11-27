@@ -368,6 +368,13 @@ setTimeout(async () => {
       name: 'daily-digest', where: 'every-pod', intervalMs: config.digest.checkIntervalMs, immediate: true,
       ...lazy(() => import('services/biz/digest/digest-runner.service'), m => m.digestTick()),
     },
+    // FR-25 R3 — the shadow ledger posted each night after the import (04:00 Sofia), for every org homed here whose
+    // shadow a person started. `one`: it writes, so one process at a time. No immediate pass: the hour decides, and a
+    // night a restart missed is caught up by the next, whose window is the whole shadow.
+    {
+      name: 'shadow-sales', where: 'one', intervalMs: config.shadowSales.checkIntervalMs, immediate: false,
+      ...lazy(() => import('services/biz/accounting-books/shadow-nightly.service'), m => m.shadowNightlyTick()),
+    },
     // FR-20.61 (P3-1b, P3-2b) — a master's capture of its own writes: one tailer under a lease, kept
     // running by this tick, and every org homed here captured. It ticks on every master because it
     // follows the link (Full: on), which can change while the API runs; LGR_REPLICATION=off stops it

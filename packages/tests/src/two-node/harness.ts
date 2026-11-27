@@ -116,10 +116,11 @@ export async function startNode(role: 'global' | 'master', scratch: string, opts
     OAUTH_FRONTEND_URL: url,
     UPLOAD_DIR: uploadDir,
     MIGRATIONS_AUTO: 'true',
-    // No scheduler fires during a cell: no digest, backup, retention or reaper of its own accord.
+    // No scheduler fires during a cell: no digest, backup, retention, shadow posting or reaper of its own accord.
     DIGEST_CHECK_INTERVAL_MS: '0',
     BACKUP_CHECK_INTERVAL_MS: '0',
     RETENTION_CHECK_INTERVAL_MS: '0',
+    SHADOW_SALES_CHECK_INTERVAL_MS: '0',
     DESKTOP_REAPER_INTERVAL_MS: '0',
     NODE_REAPER_INTERVAL_MS: '0',
     ...(pkg ? { LGR_UI_ROOT: join(pkg, 'ui') } : {}),

@@ -10,6 +10,10 @@
  *       its number (equal, or where it differs; for the cost, by how much).
  *   bun scripts/post-shadow-sales.ts --org <slug> --from … --to … --execute
  *       writes, and one audit row when anything was written.
+ *   bun scripts/post-shadow-sales.ts --org <slug> --nightly [--execute]
+ *       what the nightly run does (`shadow-nightly.service.ts`): its window, from the first month the org's shadow holds
+ *       to yesterday, and its bound. A dry run says whether the bound would hold the night; with --execute a night above
+ *       it writes nothing and exits 3. A held night is posted by hand with --from/--to, which has no bound.
  *
  * Business days in Sofia, both ends included. ⚠ The shadow ledger is in no reading of the books (no balance, no
  * statement, no register the return is made from): it is LGR's own booking, kept beside the accountant's to be compared.
@@ -23,11 +27,12 @@ import { initServiceContext } from '../packages/services/src/context.js'
 import { recordAuditEntry } from '../packages/services/src/biz/audit-log.service.js'
 import { booksOrgsOf } from '../packages/services/src/biz/accounting-books/group-cost.service.js'
 import { ShadowSalesError, postShadowSales, type ShadowRunReport } from '../packages/services/src/biz/accounting-books/shadow-sales.service.js'
+import { holdReason, nightlyWindow } from '../packages/services/src/biz/accounting-books/shadow-nightly.service.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import { requireUniqueIndexes } from './lib/require-indexes.js'
 
 const SCRIPT = 'scripts/post-shadow-sales.ts'
-const FLAGS = new Set(['org', 'from', 'to', 'execute'])
+const FLAGS = new Set(['org', 'from', 'to', 'execute', 'nightly'])
 
 const argv = process.argv.slice(2)
 const args: Record<string, string | boolean> = {}
@@ -38,9 +43,11 @@ for (let i = 0; i < argv.length; i++) {
 }
 const slug = typeof args.org === 'string' ? args.org : ''
 const execute = args.execute === true
+const nightly = args.nightly === true
 const unknown = Object.keys(args).filter(k => !FLAGS.has(k))
-if (!slug || typeof args.from !== 'string' || typeof args.to !== 'string' || unknown.length || typeof args.execute === 'string') {
-  console.error(`Usage: bun ${SCRIPT} --org <slug> --from YYYY-MM-DD --to YYYY-MM-DD [--execute]${unknown.length ? ` (unknown: --${unknown.join(', --')})` : ''}`)
+const period = nightly ? args.from === undefined && args.to === undefined : typeof args.from === 'string' && typeof args.to === 'string'
+if (!slug || !period || unknown.length || typeof args.execute === 'string' || typeof args.nightly === 'string') {
+  console.error(`Usage: bun ${SCRIPT} --org <slug> (--from YYYY-MM-DD --to YYYY-MM-DD | --nightly) [--execute]${unknown.length ? ` (unknown: --${unknown.join(', --')})` : ''}`)
   process.exit(2)
 }
 
@@ -83,6 +90,7 @@ function print(r: ShadowRunReport): void {
 
   console.log('\nThe documents')
   row(r.documents, "issued sales documents of the org's, in the period")
+  row(r.live, '  of them, holding a live posting before the run')
   row(r.posts, 'post')
   row(r.voided, '  of all of them, voided')
   console.log('  cannot post, by the first reason:')
@@ -124,6 +132,7 @@ function print(r: ShadowRunReport): void {
     row(c.booksMissing, "postable, but no books entry of the org's own series has the number")
     row(c.voided, 'voided: posted and reversed, nothing to compare')
   }
+  if (r.held) console.log(`\nHELD, nothing written: ${r.held}`)
   if (r.written) {
     const w = r.written
     console.log(`\nWritten: ${w.entries} entries, ${w.reversals} reversals, ${w.vatRows} register rows`)
@@ -150,19 +159,29 @@ try {
     }
     const { createMongoRepositories } = await import('../packages/dal-mongo/src/index.js')
     initServiceContext(await createMongoRepositories({ backend: 'mongo' }))
-    const report = await postShadowSales(orgId, { from: args.from, to: args.to, execute, ...(org.ownerId ? { by: String(org.ownerId) } : {}) })
-    print(report)
-    const w = report.written
-    if (w && w.entries + w.reversals + w.vatRows > 0) {
-      const audited = await recordAuditEntry({
-        orgId, userId: '', via: SCRIPT, action: 'create', module: 'accounting', entityType: 'journal_entry', entityId: orgId,
-        entityName: `sales documents posted into the shadow ledger (${SCRIPT})`,
-        changes: Object.entries({ entries: w.entries, reversals: w.reversals, vatRows: w.vatRows, from: report.from, to: report.to })
-          .map(([field, newValue]) => ({ field, oldValue: null, newValue })),
-      })
-      if (!audited) throw new Error('the audit row of the run was not written; the postings themselves were')
+    const window = nightly ? await nightlyWindow(orgId) : { from: args.from as string, to: args.to as string }
+    if (!window) {
+      console.log(`Org ${slug} holds no shadow posting, or its window is empty: the nightly run leaves it alone (a person starts an org's shadow with --from/--to).`)
+      code = 0
+    } else {
+      const report = await postShadowSales(orgId, { ...window, execute, ...(org.ownerId ? { by: String(org.ownerId) } : {}), ...(nightly ? { hold: plan => holdReason(plan) } : {}) })
+      print(report)
+      if (nightly && !execute) {
+        const held = holdReason(report)
+        console.log(held ? `\nThe nightly bound would HOLD this night: ${held}` : '\nThe nightly bound: within it, the night would be written.')
+      }
+      const w = report.written
+      if (w && w.entries + w.reversals + w.vatRows > 0) {
+        const audited = await recordAuditEntry({
+          orgId, userId: '', via: SCRIPT, action: 'create', module: 'accounting', entityType: 'journal_entry', entityId: orgId,
+          entityName: `sales documents posted into the shadow ledger (${SCRIPT})`,
+          changes: Object.entries({ entries: w.entries, reversals: w.reversals, vatRows: w.vatRows, from: report.from, to: report.to })
+            .map(([field, newValue]) => ({ field, oldValue: null, newValue })),
+        })
+        if (!audited) throw new Error('the audit row of the run was not written; the postings themselves were')
+      }
+      code = report.held ? 3 : 0
     }
-    code = 0
   }
 } catch (e) {
   if (!(e instanceof ShadowSalesError)) throw e

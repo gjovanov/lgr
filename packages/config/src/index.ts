@@ -576,6 +576,7 @@ export const config = {
       ? Number(process.env.DIGEST_CHECK_INTERVAL_MS)
       : 10 * 60 * 1000, // 10 minutes
   },
+  shadowSales: { checkIntervalMs: numEnv(process.env.SHADOW_SALES_CHECK_INTERVAL_MS, 10 * 60 * 1000), hour: numEnv(process.env.SHADOW_SALES_HOUR, 4) }, // FR-25 R3, shadow-nightly.service.ts: the tick (0 disables it, as .env.test does) and the hour in Sofia
   postings: {
     /**
      * FR-29.16: how often the `postings` scheduler retries the journal entries still owed. Every pod runs it (the
@@ -639,7 +640,6 @@ export const config = {
      * the endpoint then says so rather than inventing a manifest.
      */
     releaseFeedUrl: (process.env.DESKTOP_RELEASE_FEED_URL || '').trim(),
-
     /**
      * FR-14.28 / #93 — the release this hub offers, when no external feed is configured.
      *
