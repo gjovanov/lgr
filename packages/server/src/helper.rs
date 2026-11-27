@@ -380,6 +380,28 @@ fn sha256_of(file: &Path) -> Result<String> {
     Ok(ctx.finish().as_ref().iter().map(|b| format!("{b:02x}")).collect())
 }
 
+/// The CAs the helper trusts beside the OS store (#965): the one its own environment names, and the
+/// one the server's service is configured with (`service_env.rs`). Its calls to global go out through
+/// the supervisor's egress, so through any TLS-inspecting middlebox the supervisor's own calls cross,
+/// and its unit is not the service's: an administrator names the middlebox's CA in the service's
+/// environment, and until this the helper never had it. ⚠ Read from the OS's configuration of the
+/// service, never from the supervisor, whose account must not choose what root trusts.
+fn extra_cas(own: Option<crate::https::ExtraCa>, configured: Result<Option<crate::service_env::Setting>>) -> Vec<crate::https::ExtraCa> {
+    let mut cas: Vec<_> = own.into_iter().collect();
+    match configured {
+        // Emptied by a later assignment: the service starts with no extra CA either.
+        Ok(Some(s)) if !s.value.is_empty() => {
+            let file = PathBuf::from(s.value);
+            if !cas.iter().any(|c| c.file == file) {
+                cas.push(crate::https::ExtraCa { file, named_by: s.named_by });
+            }
+        }
+        Ok(_) => {}
+        Err(e) => tracing::warn!(error = %format!("{e:#}"), "the server service's configuration could not be read: the helper trusts only a CA its own environment names, beside the OS store"),
+    }
+    cas
+}
+
 /// Look for an update, and switch to it if one is due and verifies: `true` when a switch is now in
 /// flight (watched next). `tried` names the version once there is one to try (#952: what the last
 /// attempt says it was about).
@@ -392,7 +414,8 @@ fn try_update(root: &Root, tried: &mut Option<String>) -> Result<bool> {
     }
     use base64::Engine as _;
     let basic = base64::engine::general_purpose::STANDARD.encode(format!("lgr:{}", ctx.egress.1));
-    let https = crate::https::Https::with_os_roots(std::sync::Arc::new(crate::egress::Rules::through("127.0.0.1", ctx.egress.0, Some(basic))))?;
+    let cas = extra_cas(crate::https::own_extra_ca(), crate::service_env::configured(crate::https::EXTRA_CA_ENV));
+    let https = crate::https::Https::with_os_roots_and(std::sync::Arc::new(crate::egress::Rules::through("127.0.0.1", ctx.egress.0, Some(basic))), &cas)?;
     let (status, body) = rt.block_on(https.json("GET", &format!("{}/api/node/v1/server-release", ctx.server), Some(&ctx.token), None))?;
     if status == 204 {
         return Ok(false);
@@ -1176,5 +1199,22 @@ mod tests {
         assert!(m.contains("then run ghcr.io/gjovanov/lgr-server:<version>"), "{m}");
         assert!(unwatched(None).contains("no systemd"));
         assert_eq!(unwatched(Some("")), unwatched(None));
+    }
+
+    #[test]
+    fn the_helper_trusts_its_own_ca_and_the_one_the_service_is_configured_with() {
+        use crate::https::ExtraCa;
+        use crate::service_env::Setting;
+        let own = |f: &str| Some(ExtraCa { file: PathBuf::from(f), named_by: "LGR_SERVER_EXTRA_CA".into() });
+        let unit = |v: &str| Ok(Some(Setting { value: v.into(), named_by: "lgr-server.service's Environment=".into() }));
+        // #965: an administrator named it on the service only, as the docs say.
+        assert_eq!(extra_cas(None, unit("/etc/ssl/corp-ca.pem")), [ExtraCa { file: PathBuf::from("/etc/ssl/corp-ca.pem"), named_by: "lgr-server.service's Environment=".into() }]);
+        // On both, the same file: trusted once. Two files: both.
+        assert_eq!(extra_cas(own("/etc/ssl/corp-ca.pem"), unit("/etc/ssl/corp-ca.pem")), own("/etc/ssl/corp-ca.pem").into_iter().collect::<Vec<_>>());
+        assert_eq!(extra_cas(own("/etc/a.pem"), unit("/etc/b.pem")).iter().map(|c| c.file.to_string_lossy().into_owned()).collect::<Vec<_>>(), ["/etc/a.pem", "/etc/b.pem"]);
+        // Named by neither, emptied, or the configuration unreadable: the helper's own, if any.
+        assert!(extra_cas(None, Ok(None)).is_empty());
+        assert!(extra_cas(None, unit("")).is_empty());
+        assert_eq!(extra_cas(own("/etc/a.pem"), Err(anyhow::anyhow!("systemctl: no bus"))), own("/etc/a.pem").into_iter().collect::<Vec<_>>());
     }
 }

@@ -174,6 +174,16 @@ everything at once let `mongod` go first, under the API's last writes.
   no release up to server-v0.1.12 could take global's offer. The linked lane's `version-skew` found it.
   `Https::download` takes the bearer as an argument, so a new caller has to choose.
 
+- ⚠ **The helper trusts the CA the server SERVICE is configured with, read from the OS, never from
+  the supervisor** (#965, `service_env.rs`). Its unit is not the service's, so a CA named on
+  `lgr-server.service` never reached it, and behind a TLS-inspecting middlebox no master updated:
+  the helper's calls cross the same middlebox through the supervisor's egress.
+  - Linux reads `systemctl show` (`Environment=` with its drop-ins, then each `EnvironmentFile=`,
+    which overrides it). Windows reads the `LGRServer` service's `Environment` value.
+  - Never `/proc/<pid>/environ`, nor anything the supervisor answers over IPC: the service account
+    must not choose what root trusts.
+  - `version-skew` proves it: since #965 its lane names the CA on the service alone.
+
 - It reads `api.ok` and `api.uptimeSecs` from the API's `/status` over its control socket, which
   exists only once the API serves. It never reads whether the API child's process runs.
 

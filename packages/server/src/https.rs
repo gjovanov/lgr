@@ -23,6 +23,18 @@ pub fn extra_ca_file() -> Option<std::path::PathBuf> {
     std::env::var_os(EXTRA_CA_ENV).filter(|p| !p.is_empty()).map(std::path::PathBuf::from)
 }
 
+/// A CA file trusted beside the OS store, and what named it: the log says which.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtraCa {
+    pub file: std::path::PathBuf,
+    pub named_by: String,
+}
+
+/// The CA this process's own environment names (`LGR_SERVER_EXTRA_CA`), if it names one.
+pub fn own_extra_ca() -> Option<ExtraCa> {
+    extra_ca_file().map(|file| ExtraCa { file, named_by: EXTRA_CA_ENV.to_string() })
+}
+
 /// Every certificate in `path`, and at least one: a file that holds none is an error, never "no
 /// extra CA".
 pub fn extra_ca_certs(path: &std::path::Path) -> Result<Vec<rustls::pki_types::CertificateDer<'static>>> {
@@ -79,14 +91,21 @@ fn add_pem(roots: &mut rustls::RootCertStore, path: &std::path::Path) -> Result<
 impl Https {
     /// Verified against the OS's trusted roots, and the CA `LGR_SERVER_EXTRA_CA` names, if any.
     pub fn with_os_roots(rules: Arc<Rules>) -> Result<Self> {
+        Self::with_os_roots_and(rules, own_extra_ca().as_slice())
+    }
+
+    /// Verified against the OS's trusted roots and every CA in `extra`: the update helper's own and
+    /// the one the server's service is configured with (#965). A file that holds no certificate is
+    /// an error, whoever named it.
+    pub fn with_os_roots_and(rules: Arc<Rules>, extra: &[ExtraCa]) -> Result<Self> {
         let mut roots = rustls::RootCertStore::empty();
         let found = rustls_native_certs::load_native_certs();
         for cert in found.certs {
             let _ = roots.add(cert);
         }
-        if let Some(path) = extra_ca_file() {
-            let n = add_pem(&mut roots, &path)?;
-            tracing::info!(certificates = n, file = %path.display(), "trusting the CA {EXTRA_CA_ENV} names, beside the OS store");
+        for ca in extra {
+            let n = add_pem(&mut roots, &ca.file).with_context(|| format!("the CA {} names", ca.named_by))?;
+            tracing::info!(certificates = n, file = %ca.file.display(), "trusting the CA {} names, beside the OS store", ca.named_by);
         }
         if roots.is_empty() {
             bail!("the OS trusts no root certificate this process can read");
@@ -225,8 +244,8 @@ mod tests {
     }
 
     /// A TLS server answering every request with `{"seen": <method path, the auth header>}`, on a
-    /// CA the test trusts.
-    async fn fake_global() -> (u16, rustls::RootCertStore) {
+    /// CA the test trusts: as roots, and as the PEM an administrator would name.
+    async fn fake_global() -> (u16, rustls::RootCertStore, String) {
         let ca_key = rcgen::KeyPair::generate().unwrap();
         let mut ca_params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
         ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
@@ -262,7 +281,7 @@ mod tests {
                 });
             }
         });
-        (port, roots)
+        (port, roots, ca.pem())
     }
 
     /// An upstream proxy that carries CONNECTs, counting them.
@@ -311,7 +330,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_call_is_verified_against_the_given_roots_and_carries_the_bearer() {
-        let (port, roots) = fake_global().await;
+        let (port, roots, _) = fake_global().await;
         // `global.test` is not resolvable: an explicit route to 127.0.0.1 stands in for DNS here.
         let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let proxy = fake_proxy(count.clone()).await;
@@ -329,6 +348,32 @@ mod tests {
         // A server whose CA the client does not trust is refused at the handshake.
         let stranger = Https::with_roots(fake_global().await.1, rules).unwrap();
         assert!(stranger.json("GET", &format!("https://global.test:{port}/"), None, None).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_named_ca_file_is_trusted_beside_the_os_store_and_a_bad_one_says_who_named_it() {
+        // #965: the update helper's client, on the CA files it is given. The test CA is no root this
+        // machine trusts, so only the file makes the server reachable.
+        let (port, _, ca_pem) = fake_global().await;
+        let proxy = fake_proxy(Arc::new(std::sync::atomic::AtomicUsize::new(0))).await;
+        let rules = Arc::new(Rules::from_operator(&BTreeMap::from([("EGRESS_PROXY".to_string(), format!("127.0.0.1:{proxy}"))])).unwrap());
+        let url = format!("https://global.test:{port}/api/node/v1/server-release");
+        let os_only = Https::with_os_roots_and(rules.clone(), &[]).unwrap();
+        assert!(os_only.json("GET", &url, None, None).await.is_err(), "the OS store alone does not hold the test CA");
+
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("corp-ca.pem");
+        std::fs::write(&file, ca_pem).unwrap();
+        let named = Https::with_os_roots_and(rules.clone(), &[ExtraCa { file, named_by: "lgr-server.service's Environment=".into() }]).unwrap();
+        assert_eq!(named.json("GET", &url, None, None).await.unwrap().0, 201);
+
+        let empty = dir.path().join("empty.pem");
+        std::fs::write(&empty, "not a certificate\n").unwrap();
+        let Err(err) = Https::with_os_roots_and(rules, &[ExtraCa { file: empty, named_by: "the LGRServer service's Environment value".into() }]) else {
+            panic!("a CA file that holds no certificate was taken");
+        };
+        let err = format!("{err:#}");
+        assert!(err.contains("the CA the LGRServer service's Environment value names") && err.contains("holds no certificate"), "{err}");
     }
 
     #[tokio::test]

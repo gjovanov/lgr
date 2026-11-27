@@ -186,8 +186,9 @@ nothing of it exists on a master: every route below is 404 there.
   - it calls global through the machine's proxy rules and the OS trust store (`https.rs`, the API's
     egress path), then proves the registration with a token and `/self`. A CA the OS store lacks (a
     TLS-inspecting middlebox's never deployed to the machine, or a test global's) is named by the
-    service's own `LGR_SERVER_EXTRA_CA`, a PEM file, which the API's own calls to global trust too;
-    one that holds no certificate stops the start;
+    service's own `LGR_SERVER_EXTRA_CA`, a PEM file, which the API's own calls to global trust too,
+    and so does the update helper (#965, below). One that holds no certificate is an error, never
+    "no extra CA": the server runs, cannot reach global, and its log says why;
   - what global answers is kept in `state/registration.json` and shown by `lgr-server status`.
   Run it again with another org's code to add that org.
 - **The field lanes** register with reusable keys, gated by `Org.settings.node.ephemeralKeysEnabled`.
@@ -378,6 +379,16 @@ Updates that come by themselves (plan step P1-8c, `updates.rs`, `helper.rs`, `si
   named exactly `G ROX LTD`, and the version read from inside the bytes, which must be the offered
   one. The gate is asked again before the switch: a till may have opened during the download. A TEST
   build also takes the update keys its field lane names (see Licences, test builds), and logs it.
+- **The helper's trust** (#965): the OS store, the CA its own environment names, and the CA the
+  server's SERVICE is configured with, read from the OS's configuration of it (`service_env.rs`). On
+  Linux that is `lgr-server.service` as `systemctl show` reports it: `Environment=`, drop-ins
+  included, then each `EnvironmentFile=`, which overrides it. On Windows it is the `LGRServer`
+  service's `Environment` value. Its calls cross whatever middlebox the supervisor's cross (they go
+  out through its egress), and its unit is not the service's: until #965 an administrator who named
+  the middlebox's CA on the service had a master that ran and never updated.
+  - ⚠ Never from the supervisor: not its environment (`/proc/<pid>/environ`), not anything it
+    answers over IPC. Those are the service account's, and that account must not choose what root
+    or SYSTEM trusts.
 - **Air-gapped:** `lgr-server update apply <bundle> --sig <file> [--asc <file>]`, the same checks on a
   copy made in `update/staging/`, switched now and watched.
 - **Seven windows kept by open sessions** raise the alarm: the status's `update.alarm` and the

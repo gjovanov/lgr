@@ -35,6 +35,7 @@ mod preflight;
 mod register;
 mod replication;
 mod service;
+mod service_env;
 mod setup;
 mod signatures;
 mod status_file;
