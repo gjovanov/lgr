@@ -170,19 +170,22 @@ async function continuousHeads(orgId: mongoose.Types.ObjectId, prefixes: string[
 }
 
 /**
- * #929: what the documents WITHOUT stored parts hold, read by the old scan of their numbers. Those are the
+ * #929: the old scan of the numbers, for an org some of whose documents carry no stored parts. Those are the
  * documents written before the parts existed, until migration `0024-invoice-number-parts` gives them theirs
  * (production runs with `MIGRATIONS_AUTO=false`, so the code is live before the backfill), and any document a
  * writer stored raw without them. One read on the index tells whether the org has any (`numberHead: null`
- * matches a missing head, and every written head is a string): with none the scan does not run, with some it
- * reads only them. Every document is either here or under a stored head, so the two together are exactly what
- * the scan read before.
+ * matches a missing head, and every written head is a string): with none the scan does not run.
+ *
+ * With some, it is the scan exactly as it was, over every number of the org, so the answer is the scan's whatever
+ * the stored parts say. ⚠ Not narrowed to the documents without parts: `numberHead: null` is not in the number's
+ * index, so the narrowed scan FETCHED each such document, where this one reads the unique number index alone
+ * (`docsExamined: 0`, #785). Until the backfill an org pays what it paid before, and nothing more.
  */
 async function unbackfilledMax(orgId: mongoose.Types.ObjectId, prefixes: string[], year: number | null): Promise<number> {
   if (!(await Invoice.exists({ orgId, numberHead: null }))) return 0
   // The pattern ends in `-<digits>`, so the running number is the piece after the last dash. An aggregate casts nothing.
   const rows: Array<{ max?: number }> = await Invoice.aggregate([
-    { $match: { orgId, numberHead: null, invoiceNumber: { $regex: seriesPattern(prefixes, year) } } },
+    { $match: { orgId, invoiceNumber: { $regex: seriesPattern(prefixes, year) } } },
     { $project: { _id: 0, n: { $convert: { input: { $arrayElemAt: [{ $split: ['$invoiceNumber', '-'] }, -1] }, to: 'double', onError: 0, onNull: 0 } } } },
     { $group: { _id: null, max: { $max: '$n' } } },
   ]).exec()

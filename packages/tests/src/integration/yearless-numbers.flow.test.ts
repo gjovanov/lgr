@@ -48,9 +48,12 @@ async function world(opts: { continuous?: boolean } = {}) {
   return { org, orgId, holds, doc, numbers, backup }
 }
 
-/** Everything of a document but what a run may change. */
+/**
+ * Everything of a document but what a run may change. #929: `numberHead` / `numberSeq` are derived from the number on
+ * every write, so they follow it by design (`INV-2026` → `INV`); the test below checks them against the new number.
+ */
 const rest = (d: any) => {
-  const { invoiceNumber: _n, numberHistory: _h, updatedAt: _u, ...other } = d
+  const { invoiceNumber: _n, numberHistory: _h, updatedAt: _u, numberHead: _nh, numberSeq: _ns, ...other } = d
   return other
 }
 
@@ -180,6 +183,9 @@ describe('a run', () => {
     ])
     expect(rest(hereAfter)).toEqual(rest(hereBefore))
     expect(rest(bareAfter)).toEqual(rest(bareBefore))
+    // The running number moves with the number: the year leaves the head, the digits stay.
+    expect(hereAfter).toMatchObject({ numberHead: 'INV', numberSeq: 3000000101 })
+    expect(bareAfter).toMatchObject({ numberHead: 'INV', numberSeq: 3000000102 })
     expect(hereAfter.draftNumber).toBe('DRF-INV-2026-00004')
   })
 

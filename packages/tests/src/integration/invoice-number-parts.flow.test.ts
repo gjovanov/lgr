@@ -44,7 +44,8 @@ async function world() {
   const contact = await createTestContact(org._id)
   const base = (invoiceNumber: string, extra: Record<string, unknown> = {}) => ({
     orgId: org._id, invoiceNumber, type: 'invoice', direction: 'outgoing', status: 'sent', contactId: contact._id,
-    issueDate: new Date(), dueDate: new Date(), currency: 'EUR', exchangeRate: 1, lines: [], ...extra,
+    issueDate: new Date(), dueDate: new Date(), currency: 'EUR', exchangeRate: 1, lines: [],
+    billingAddress: { street: '-', city: '-', postalCode: '-', country: '-' }, ...extra,
   })
   /** As a writer of this release leaves it: through the model, its hooks storing the parts. */
   const holds = (invoiceNumber: string, extra: Record<string, unknown> = {}) =>

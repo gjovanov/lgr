@@ -882,9 +882,9 @@ A movement is in the ledger one of two ways, never both (`services/biz/contact-l
 - **Why.** The scan read every number of the org at each allocation and each form's "next number": in the #785 soak a
   sale examined as many keys as the org had invoices, and an issued sales document was re-planned every time, about
   18 µs per invoice of the org.
-- **Before the backfill.** A document without `numberHead` (written before, or raw by something that did not derive
-  it) is read by the old scan, restricted to such documents; one indexed read says whether the org has any. Migration
-  `0024-invoice-number-parts` fills them, recomputes stale ones, and builds the index.
+- **Before the backfill.** While an org has a document without `numberHead` (written before, or raw by something that
+  did not derive it), the old scan runs too, as it was (covered by the number's index); one indexed read says whether
+  the org has any. Migration `0024-invoice-number-parts` fills them, recomputes stale ones, and builds the index.
 - ⚠ **The parts are the server's alone.** Every Mongoose write derives them from `invoiceNumber` (save, insertMany, the
   update and replace queries, which also drop any value an update names for them). Every RAW writer of an invoice calls
   `withNumberParts` / `withDerivedFields` itself: replication's apply, the fenced and kept imports, a move's import, a
