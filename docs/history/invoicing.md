@@ -842,7 +842,9 @@ A movement is in the ledger one of two ways, never both (`services/biz/contact-l
   document and on its re-issue) while the customer read a credit they were never owed.
 - ⚠ **A note refunded as it was issued takes no second refund** (400: it is `paid`, like an invoice paid at the
   counter). To give the money back another way, change the note's method first: the rule withdraws its own row, and
-  the refund can then be recorded.
+  the refund can then be recorded. Voiding it is the same: `/void` refuses a `paid` document, as it does a cash
+  invoice paid on issue, so its method changes first. Until 2026-11-27 such a note stayed `sent` and was voided as it
+  stood.
 - ⚠ **The backlog is `scripts/settle-cash-invoices.ts`, credit notes included** (`--type invoice|credit_note`, both by
   default). A credit note with a storno tried is never selected, as an invoice with a receipt tried never is: its
   refund is that storno's (`settlement-backlog.ts`).

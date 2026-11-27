@@ -1128,7 +1128,7 @@ causes. Counts only; the rows stayed with the person who ran it.
 | 328 | paid by card at the counter: the books code the document `1` and debit `501` what was paid, as for cash; the shadow took cash only | the card's rule, `sales.<kind>.card` (slice 3) |
 | 13 | cash on delivery: the books code it `1` and debit `501` the total on the invoice's day; LGR waits for the courier | its own rule, `sales.<kind>.cash_on_delivery` (question 5, answered) |
 | 9 | the books' own amounts, a cent or two from the printed document (the sales register gate's money rows): the cash follows the books' total | none: the books' |
-| 8 | paid at the counter, but LGR records no payment: 3 credit notes refunded at the counter (the settlement rule settles invoices only), and 5 invoices of one imported day that were issued outside the import's conversion, with no settlement and no audit row | LGR's data: the 5 invoices settled with the rest of their run; the 3 credit notes not yet |
+| 8 | paid at the counter, but LGR records no payment: 3 credit notes refunded at the counter (the settlement rule settles invoices only), and 5 invoices of one imported day that were issued outside the import's conversion, with no settlement and no audit row | LGR's data: the 5 invoices settled with the rest of their run; the 3 credit notes refunded on 2026-11-27, by the rule (below) |
 | 2 | LGR records them paid in cash, the books by bank | LGR's data: PlusMinus holds both as bank too (one was changed there after its import), and both are now bank transfers in LGR |
 
 - **The rule, not the books, was short.** In those months the books book all but one card sale at the counter on
@@ -1158,6 +1158,11 @@ causes. Counts only; the rows stayed with the person who ran it.
   credit note in cash or by card on its issue date, as it pays an invoice paid at the counter, in every org (where LGR
   prints, a note a person issues still refunds on its storno), and `scripts/settle-cash-invoices.ts` takes the notes
   issued before (`--type credit_note`). `docs/history/invoicing.md` has the rule.
+- **Done on production the same day (#967, deployed first).** The 5 credit notes were refunded by the backlog run, and
+  the 3 the shadow holds were reposted as the dry run planned: one in each of three months, and nothing else. A dry run
+  before the refunds planned nothing in any month, and each dry run after a write planned nothing. **After it, 20
+  compared documents differ on cash, against 23:** every month of the home is equal to the books, and the 20 are the
+  other store's October (the 18 by a cent or two, and the 2 the books code bank). Revenue and VAT are as they were.
 
 ### R3: the accountant's override of a group's average, as built
 
