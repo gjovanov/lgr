@@ -4,8 +4,8 @@ import { printsHere } from './sale-counting.js'
 
 /**
  * What `scripts/settle-cash-invoices.ts` may touch: the invoices paid at the counter that were issued
- * before such an invoice was paid on issue, and the credit notes refunded there that were issued
- * before such a note was refunded on issue (2026-11-27).
+ * before such an invoice was paid on issue, and the debit notes paid and the credit notes refunded
+ * there that were issued before such a note was settled on issue (2026-11-27).
  *
  * ⚠ FR-23: only where nothing prints. Where LGR prints, the receipt and its payment are the settlement,
  * and an unpaid cash invoice is one whose money nobody took: settling it books money with no receipt.

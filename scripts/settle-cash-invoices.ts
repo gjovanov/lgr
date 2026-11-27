@@ -15,10 +15,11 @@
  *
  * A credit note refunded at the counter follows it too since 2026-11-27: it gives its money back as
  * it is issued, so the ones issued before need the same run. Each gets one refund by its method,
- * dated its issue date, and becomes `paid`. `--type invoice|credit_note` limits a run to one type;
- * without it, both (`SETTLED_TYPES`).
+ * dated its issue date, and becomes `paid`. A debit note charged at the counter follows it as an invoice
+ * does, since the same day: none was due anywhere then. `--type invoice|debit_note|credit_note` limits a run
+ * to one type; without it, all three (`SETTLED_TYPES`).
  *
- *   bun run scripts/settle-cash-invoices.ts [--execute] [--org <slug>] [--method cash|card] [--type invoice|credit_note] [--as <email>]
+ *   bun run scripts/settle-cash-invoices.ts [--execute] [--org <slug>] [--method cash|card] [--type invoice|debit_note|credit_note] [--as <email>]
  *
  * Dry-run by default: lists what would be settled and how much, writes nothing. Idempotent: a
  * document paid in full is left alone, so a second run settles nothing.
