@@ -328,7 +328,8 @@ export async function convertDraftInvoice(
     await learnSupplierAliases(orgId, updated || invoice)
   }
   await syncOrderForInvoice(orgId, updated || invoice, userId)
-  // A sales invoice paid in cash („Плащане: В брой") is paid as it is issued, like one from /send.
+  // A sales invoice paid in cash („Плащане: В брой") is paid as it is issued, like one from /send,
+  // and a credit note refunded in cash or by card gives its money back as it is issued.
   await syncCashSettlement(orgId, invoiceId, userId)
   createAuditEntry({
     orgId, userId, action: newStatus, module: 'invoicing', entityType: 'invoice',

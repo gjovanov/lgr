@@ -643,3 +643,20 @@ A movement is in the ledger one of two ways, never both (`services/biz/contact-l
   bridge holds makes every sale on it a 503 until a connect or an `online`/`offline` write clears it. The create takes
   the form's `isActive` (default true). A device's warehouse is the model's required field: both schemas refuse `null`,
   and the form cannot clear it.
+
+## A credit note refunded at the counter is refunded as it is issued (2026-11-27, FR-25 R3, #471)
+
+- **What.** `syncCashSettlement` (`services/biz/cash-settlement.service.ts`) settles an issued outgoing credit note
+  whose method is cash or card the way it settles an invoice paid at the counter: what it still has to give back
+  becomes one refund by that method, marked `cash_on_issue` / `card_on_issue` and dated the note's issue date, and
+  the note is `paid` with nothing due. The same three paths call it: `/send`, `PUT /invoices/:id` and the import
+  conversion. An edit follows as for an invoice: a lower total shrinks the automatic refund, another method withdraws
+  it (and voids its journal entry), and a refund a person recorded is never touched. Bank transfer and cash on
+  delivery stay due, a supplier's credit note and a debit note are not this rule's, and a draft is left alone.
+  `settlesOnIssue` says which documents the rule takes; the edit path asks it too.
+- ⚠ **A note refunded as it was issued takes no second refund** (400: it is `paid`, like an invoice paid at the
+  counter). To give the money back another way, change the note's method first: the rule withdraws its own row, and
+  the refund can then be recorded.
+- ⚠ **The backlog is `scripts/settle-cash-invoices.ts`, credit notes included** (`--type invoice|credit_note`, both by
+  default). A credit note with a storno tried is never selected, as an invoice with a receipt tried never is: its
+  refund is that storno's (`settlement-backlog.ts`).

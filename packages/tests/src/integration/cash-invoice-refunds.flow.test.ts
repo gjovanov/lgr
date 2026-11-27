@@ -35,6 +35,7 @@ import { deleteDocFiles, planDeleteDocFiles } from 'services/biz/files/doc-delet
 import { commitDocFile } from 'services/biz/files/doc-pipeline.service'
 import { NOT_UNPROVED_STORNO } from 'services/biz/sale-counting'
 import { takeBudget, giveBackBudget, leftByRate } from 'services/biz/cash-register/refund-budget'
+import { unsettledInvoices } from 'services/biz/settlement-backlog'
 import {
   exportCancelledSales, exportItemizedSales, exportPaymentDetails, exportReversedSales, exportSummarizedSales,
 } from 'services/biz/supto-export.service'
@@ -4803,7 +4804,7 @@ describe('a held storno and the switch (the readers, B5)', () => {
     expect(w.sim!.receipts).toHaveLength(printed)
   })
 
-  it('a new note in cash on an invoice with a receipt, the switch off: issued with no storno, by decision', async () => {
+  it('a new note in cash on an invoice with a receipt, the switch off: issued with no storno, by decision, and refunded as it is issued', async () => {
     const w = await tillWorld(app)
     const inv = await paidInvoice(w)
     await allowSalesWithoutPrinter(w.oid)
@@ -4812,9 +4813,24 @@ describe('a held storno and the switch (the readers, B5)', () => {
 
     expect((await send(w, note.id)).status).toBe(200)
 
-    expect(await raw(note.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    // FR-25 R3 (2026-11-27): where nothing prints, the counter's refund is recorded as the note is issued.
+    const stored = await raw(note.id)
+    expect(stored).toMatchObject({ status: 'paid', amountPaid: stored.total, amountDue: 0 })
+    expect(stored.payments.map((p: any) => [p.amount, p.method, p.origin])).toEqual([[stored.total, 'cash', 'cash_on_issue']])
     expect(await stornosOf(note.id)).toHaveLength(0)
     expect(w.sim!.receipts).toHaveLength(printed)
+  })
+
+  it('the backlog never takes a note with a storno tried, the switch off or not: its refund is that storno\'s', async () => {
+    const w = await tillWorld(app)
+    const { inv, note } = await heldThenOff(w)
+    const other = await issuedNote(w, inv, { quantity: 1 })
+    // As notes issued in cash before 2026-11-27: nothing recorded as given back.
+    await Invoice.updateMany({ _id: { $in: [note.id, other.id] } }, { $set: { paymentMethod: 'cash' } })
+
+    const due = await unsettledInvoices(w.oid, ['cash', 'card'])
+
+    expect(due.map(d => [d.id, d.type])).toEqual([[String(other.id), 'credit_note']])
   })
 })
 
@@ -4916,8 +4932,12 @@ describe('`fiscally_paid` on a note says what a note can have', () => {
   })
 })
 
+/**
+ * Where nothing prints, a credit note in cash or by card is refunded as it is issued (FR-25 R3, 2026-11-27): the
+ * invoice's counter rule the other way round. Until then it stayed due, and the refund was a person's to record.
+ */
 describe('nothing prints: credit notes behave as today', () => {
-  it('the switch off: a credit note in cash is issued and stays due, no session asked for, and a cash refund is recorded', async () => {
+  it('the switch off: a credit note in cash is refunded as it is issued, no session asked for, nothing printed', async () => {
     const w = await tillWorld(app)
     const inv = await draftOf(w, { method: 'bank_transfer' })
     await send(w, inv.id)
@@ -4929,8 +4949,24 @@ describe('nothing prints: credit notes behave as today', () => {
     const issued = await send(w, note.id)
 
     expect(issued.status).toBe(200)
-    expect(await raw(note.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    const stored = await raw(note.id)
+    expect(stored).toMatchObject({ status: 'paid', amountPaid: 24, amountDue: 0 })
+    expect(stored.payments.map((p: any) => [p.amount, p.method, p.origin])).toEqual([[24, 'cash', 'cash_on_issue']])
     expect(await stornosOf(note.id)).toHaveLength(0)
+    expect(w.sim!.executed.filter(c => PRINTING.includes(c.cmd))).toHaveLength(printed)
+  })
+
+  it('the switch off: a note by bank transfer waits, and a cash refund recorded by hand is recorded as it was', async () => {
+    const w = await tillWorld(app)
+    const inv = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, inv.id)
+    await allowSalesWithoutPrinter(w.oid)
+    await POSSession.updateOne({ _id: w.sessionId }, { $set: { status: 'closed' } })
+    const note = await noteOn(w, inv, { method: 'bank_transfer' })
+    const printed = w.sim!.executed.filter(c => PRINTING.includes(c.cmd)).length
+
+    expect((await send(w, note.id)).status).toBe(200)
+    expect(await raw(note.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
 
     const refunded = await pay(w, note.id, 24)
 
@@ -4958,25 +4994,33 @@ describe('nothing prints: credit notes behave as today', () => {
       const w = await tillWorld(app, { device: false })
       const a = await books(w)
       const inv = await printsNothing(w)
+      // In cash it is refunded as it is issued: the row is the rule's, and its entry is money out.
       const note = await noteOn(w, inv, { quantity: 1 })
       expect((await send(w, note.id)).status).toBe(200)
-      expect(await raw(note.id)).toMatchObject({ status: 'sent', amountPaid: 0, paymentMethod: 'cash' })
+      const settled = await raw(note.id)
+      expect(settled).toMatchObject({ status: 'paid', amountPaid: 12, amountDue: 0, paymentMethod: 'cash' })
+      expect(settled.payments.map((p: any) => [p.amount, p.method, p.origin])).toEqual([[12, 'cash', 'cash_on_issue']])
+      expect(moves(await entryOf(note.id))).toEqual([[String(a.receivable._id), 12, 0], [String(a.cash._id), 0, 12]])
 
-      // None of what a printing door refuses: no role, no session, no receipt, no cap.
-      const over = await pay(w, note.id, 13)
+      // By bank it waits for a person, and a cash refund meets none of what a printing door refuses: no role, no
+      // session, no receipt, no cap.
+      const other = await noteOn(w, inv, { quantity: 1, method: 'bank_transfer' })
+      expect((await send(w, other.id)).status).toBe(200)
+      expect(await raw(other.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+      const over = await pay(w, other.id, 13)
       expect(over.status).toBe(422)
       expect(over.json.code).toBe('overpayment')
 
-      const r = await pay(w, note.id, 12, 'cash', undefined, await w.tokenAs('sales'))
+      const r = await pay(w, other.id, 12, 'cash', undefined, await w.tokenAs('sales'))
       expect(r.status).toBe(200)
-      const stored = await raw(note.id)
+      const stored = await raw(other.id)
       expect(stored).toMatchObject({ status: 'paid', amountPaid: 12, amountDue: 0 })
       expect(stored.payments).toHaveLength(1)
       expect(stored.payments[0]).toMatchObject({ method: 'cash', amount: 12 })
       expect(stored.payments[0].origin).toBeUndefined()
-      expect(await stornosOf(note.id)).toHaveLength(0)
+      expect(await stornosOf(other.id)).toHaveLength(0)
 
-      const entry = await entryOf(note.id)
+      const entry = await entryOf(other.id)
       expect(moves(entry)).toEqual([[String(a.receivable._id), 12, 0], [String(a.cash._id), 0, 12]])
       expect(entry.description).toContain('Payment sent')
     })
@@ -4993,10 +5037,32 @@ describe('nothing prints: credit notes behave as today', () => {
       }
     })
 
-    it('the digest foots: a credit note is negative in `salesTotal`, as in `byMethod` and in sales history', async () => {
+    it('refunded as it is issued, the digest foots the same: the note is negative in `salesTotal`, `byMethod` and sales history', async () => {
       const w = await tillWorld(app, { device: false })
       const inv = await printsNothing(w)
       const note = await noteOn(w, inv, { quantity: 1 })
+      expect((await send(w, note.id)).status).toBe(200)
+      expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 12 })
+      const day = localDayOf(new Date(), 'Europe/Sofia')
+      const noon = new Date(`${day}T10:00:00Z`)
+      await Invoice.updateMany({ orgId: w.oid }, { $set: { issueDate: noon } })
+      await Invoice.updateMany({ orgId: w.oid, 'payments.0': { $exists: true } }, { $set: { 'payments.$[].date': noon } })
+      const entry = reportById('sales-history')!
+      const history: any = await entry.handler!({ orgId: w.orgId, params: validateParams(entry, { period: { preset: 'custom', from: day, to: day }, includeNonRegister: true, source: 'documents' }), output: 'table' })
+
+      const digest: any = await buildDailyDigest(w.orgId, day)
+
+      expect(digest.kpis.salesTotal).toBe(12)
+      expect(+digest.kpis.byMethod.reduce((s: number, m: any) => s + m.amount, 0).toFixed(2)).toBe(12)
+      expect(history.meta.summary[0].total).toBe(12)
+      expect(digest.kpis.salesCount).toBe(2)
+    })
+
+    it('the digest foots: a credit note is negative in `salesTotal`, as in `byMethod` and in sales history', async () => {
+      const w = await tillWorld(app, { device: false })
+      const inv = await printsNothing(w)
+      // By bank: owed when it is issued, and its refund recorded later.
+      const note = await noteOn(w, inv, { quantity: 1, method: 'bank_transfer' })
       expect((await send(w, note.id)).status).toBe(200)
       const day = localDayOf(new Date(), 'Europe/Sofia')
       const noon = new Date(`${day}T10:00:00Z`)
@@ -5041,7 +5107,7 @@ describe('nothing prints: credit notes behave as today', () => {
     })
   })
 
-  it('an imported credit note, with the switch on: issued by a person it prints nothing, and its refund is recorded', async () => {
+  it('an imported credit note, with the switch on: issued by a person it prints nothing, and it is refunded as it is issued', async () => {
     const w = await tillWorld(app)
     const inv = await paidInvoice(w)
     const note = await noteOn(w, inv)
@@ -5049,9 +5115,12 @@ describe('nothing prints: credit notes behave as today', () => {
     const printed = w.sim!.receipts.length
 
     expect((await send(w, note.id)).status).toBe(200)
-    expect((await pay(w, note.id, 24)).status).toBe(200)
 
-    expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    // Its storno was printed by the system it came from, so its money went back there: as an imported invoice is
+    // paid as it is issued (`ruleSettles`), the note is refunded (FR-25 R3).
+    const stored = await raw(note.id)
+    expect(stored).toMatchObject({ status: 'paid', amountPaid: 24, amountDue: 0 })
+    expect(stored.payments.map((p: any) => [p.amount, p.method, p.origin])).toEqual([[24, 'cash', 'cash_on_issue']])
     expect(w.sim!.receipts).toHaveLength(printed)
     expect(await stornosOf(note.id)).toHaveLength(0)
     expect(leftByRate(await fresh(inv.receipt._id)).get(20)).toBe(2400)

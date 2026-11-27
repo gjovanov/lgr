@@ -13,7 +13,12 @@
  * `--method cash|card` limits a run to one method; without it, every method settled on issue
  * (`SETTLED_ON_ISSUE`).
  *
- *   bun run scripts/settle-cash-invoices.ts [--execute] [--org <slug>] [--method cash|card] [--as <email>]
+ * A credit note refunded at the counter follows it too since 2026-11-27: it gives its money back as
+ * it is issued, so the ones issued before need the same run. Each gets one refund by its method,
+ * dated its issue date, and becomes `paid`. `--type invoice|credit_note` limits a run to one type;
+ * without it, both (`SETTLED_TYPES`).
+ *
+ *   bun run scripts/settle-cash-invoices.ts [--execute] [--org <slug>] [--method cash|card] [--type invoice|credit_note] [--as <email>]
  *
  * Dry-run by default: lists what would be settled and how much, writes nothing. Idempotent: a
  * document paid in full is left alone, so a second run settles nothing.
@@ -40,7 +45,7 @@ import { assertHomeIsHere, isHomeHere } from 'db/home/home'
 import { Org, User } from 'db/models'
 import { administratorFilter } from 'services/biz/access/role.service'
 import { initServiceContext } from 'services/context'
-import { syncCashSettlement, SETTLED_ON_ISSUE } from 'services/biz/cash-settlement.service'
+import { syncCashSettlement, SETTLED_ON_ISSUE, SETTLED_TYPES } from 'services/biz/cash-settlement.service'
 import { orgsToSettle, unsettledInvoices } from 'services/biz/settlement-backlog'
 
 const EXECUTE = process.argv.includes('--execute')
@@ -50,6 +55,9 @@ const AS_EMAIL = arg('--as')?.toLowerCase()
 const METHOD = arg('--method')
 const METHODS = METHOD ? [METHOD] : Object.keys(SETTLED_ON_ISSUE)
 if (METHODS.some(m => !SETTLED_ON_ISSUE[m])) throw new Error(`--method must be one of: ${Object.keys(SETTLED_ON_ISSUE).join(', ')}`)
+const TYPE = arg('--type')
+const TYPES = TYPE ? [TYPE] : [...SETTLED_TYPES]
+if (TYPES.some(t => !SETTLED_TYPES.has(t))) throw new Error(`--type must be one of: ${[...SETTLED_TYPES].join(', ')}`)
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 
@@ -84,13 +92,19 @@ async function main() {
   let grandCount = 0
   let grandAmount = 0
   for (const org of orgs) {
-    const due = await unsettledInvoices(org._id, METHODS)
+    const due = await unsettledInvoices(org._id, METHODS, TYPES)
     if (!due.length) continue
     const amount = round2(due.reduce((s, d) => s + d.outstanding, 0))
     grandCount += due.length
     grandAmount += amount
-    const byMethod = METHODS.map(m => { const ds = due.filter(d => d.method === m); return ds.length ? `${m} ${ds.length} (${round2(ds.reduce((s, d) => s + d.outstanding, 0)).toFixed(2)})` : '' }).filter(Boolean).join(', ')
-    console.log(`${org.slug}: ${due.length} invoice(s), ${amount.toFixed(2)} outstanding — ${byMethod} — e.g. ${due.slice(0, 3).map(d => d.number).join(', ')}`)
+    // Per type, then per method: a credit note's outstanding is what it still has to give back.
+    const byType = TYPES.map(t => {
+      const ofType = due.filter(d => d.type === t)
+      if (!ofType.length) return ''
+      const byMethod = METHODS.map(m => { const ds = ofType.filter(d => d.method === m); return ds.length ? `${m} ${ds.length} (${round2(ds.reduce((s, d) => s + d.outstanding, 0)).toFixed(2)})` : '' }).filter(Boolean).join(', ')
+      return `${t} ${ofType.length}: ${byMethod}`
+    }).filter(Boolean).join('; ')
+    console.log(`${org.slug}: ${due.length} document(s), ${amount.toFixed(2)} outstanding — ${byType} — e.g. ${due.slice(0, 3).map(d => d.number).join(', ')}`)
     if (!EXECUTE) continue
 
     const actor = await actorFor(org._id)
@@ -102,11 +116,11 @@ async function main() {
       recorded += res.amount
     }
     console.log(`  settled: ${JSON.stringify(tally)}, ${round2(recorded).toFixed(2)} recorded`)
-    // Verify: none of this org's counter-paid invoices may still show money due.
-    const left = await unsettledInvoices(org._id, METHODS)
-    if (left.length) throw new Error(`${org.slug}: ${left.length} invoice(s) still unsettled after the run (${left.slice(0, 3).map(d => d.number).join(', ')})`)
+    // Verify: none of this org's documents settled at the counter may still show money due.
+    const left = await unsettledInvoices(org._id, METHODS, TYPES)
+    if (left.length) throw new Error(`${org.slug}: ${left.length} document(s) still unsettled after the run (${left.slice(0, 3).map(d => d.number).join(', ')})`)
   }
-  console.log(`${EXECUTE ? 'SETTLED' : 'DRY RUN — would settle'} ${grandCount} invoice(s), ${round2(grandAmount).toFixed(2)} in total${EXECUTE ? '' : ' (pass --execute to write)'}`)
+  console.log(`${EXECUTE ? 'SETTLED' : 'DRY RUN — would settle'} ${grandCount} document(s), ${round2(grandAmount).toFixed(2)} in total${EXECUTE ? '' : ' (pass --execute to write)'}`)
   // Audit entries are written fire-and-forget; disconnecting at once cut the last one off
   // ("Operation interrupted because client was closed") in the first trial run.
   if (EXECUTE) await new Promise(r => setTimeout(r, 2000))
