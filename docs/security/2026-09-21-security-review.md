@@ -51,7 +51,7 @@ day.
 | S-13 | Low | Live credentials in a OneDrive-synced working copy | Open |
 | S-14 | Low | `User.password` has no `select: false` | **Fixed 2026-11-09** (by a sweep of every route) |
 | S-15 | Low | Body validation runs before the auth guard (schema disclosure) | **Fixed 2026-11-09** |
-| S-16 | Info | Dependency audit: 2 transitive advisories, neither reachable (re-checked 2026-11-10: vue-i18n and follow-redirects upgraded) | Open |
+| S-16 | Info | Dependency audit: 1 transitive advisory left, not reachable (re-checked 2026-11-27: uuid overridden to 11; zod waits on upstream) | Open |
 | **S-17** | **Critical** | **OAuth self-enrolment — anyone could join any org they could name** | **Fixed** |
 | **S-18** | **High** | **`/ws/fiscal-bridge` authenticated nothing; a registration evicted the till's bridge** | **Fixed 2026-09-29** |
 | **S-19** | **High** | **OAuth sign-up put its credential in a URL, and honoured a planted one** | **Fixed 2026-10-01** |
@@ -757,6 +757,53 @@ Known Issues entry.
   configuration. LGR validates requests with TypeBox. `uuid` 8.3.2 (GHSA-w5hq-g745-h8pq, moderate)
   through `exceljs`, which calls only `v4()`; the flaw is in `v3`/`v5`/`v6` given a buffer. Both
   fixes are a major the parents do not accept yet.
+
+**Re-checked 2026-11-27.** `bun audit` reported 2: uuid and zod. It now reports 1, zod.
+
+- **uuid: fixed by an override.** The root `package.json` has `"overrides": { "uuid": "^11.1.1" }`,
+  so `exceljs` gets uuid 11.1.1 in place of 8.3.2 (GHSA-w5hq-g745-h8pq).
+  - exceljs 4.4.0 asks for `^8.3.0`, but it uses uuid in one place:
+    `lib/xlsx/xform/sheet/cf-ext/cf-rule-ext-xform.js` does `const {v4: uuidv4} = require('uuid')`.
+    That id is written only for a conditional-formatting rule with an x14 extension (a data bar, an
+    icon set), and LGR writes no conditional formatting.
+  - uuid 11 still ships CommonJS (`exports["."].node.require` is `./dist/cjs/index.js`) and still
+    exports `v4`. The browser build of exceljs (`dist/exceljs.min.js`) bundles its own copy, but no
+    LGR bundle uses it.
+  - Checked under Bun and under Node: exceljs resolves uuid 11.1.1, and a workbook with a data bar is
+    written with an `<x14:id>` from `uuidv4()` and reads back. `unit/order-sheet-export.test.ts`,
+    which writes an xlsx and reads it back, passes.
+- **zod 3.25.76 (GHSA-mrhx-c7xc-m3w5, high): left, not reachable.** zod 4 is the fix, and both parents
+  import the v3 API, so a global override is not an option. LGR imports zod nowhere; it validates
+  requests with TypeBox.
+  - **Through `chromium-bidi` (puppeteer).** It is never loaded. `puppeteer-core` imports
+    `chromium-bidi` in one file, `bidi/BidiOverCdp.js`, and `BrowserLauncher` loads that file
+    (a dynamic `import('../bidi/bidi.js')`) only when `protocol === 'webDriverBiDi'`. That is the
+    default for Firefox only.
+    - The renderer (`reporting/src/pdf/base.pdf.ts#launchBrowser`) launches Chrome with no
+      `protocol`, so CDP. `PUPPETEER_BROWSER` is set nowhere, and puppeteer reads no protocol from
+      the environment.
+    - Were it loaded, it would parse the messages between puppeteer and the headless Chrome LGR
+      started itself, never a request.
+    - A fix is in reach. puppeteer 25.14.0 and later (latest 25.19.0) pin `chromium-bidi`
+      157.0.8090-0, which needs zod `^4.6.5`. It is not taken here. The bump changes the Chrome
+      every node prints with (`packages/server/pdf-browser.lock.json`, now 151.0.7922.77): that means
+      `fetch-pdf-browser.ts --update-lock` with its four digests reviewed, a new image layer, and
+      the PDF layouts checked again. On its own it would not clear the advisory, because the path
+      below stays. It belongs with the next puppeteer bump.
+  - **Through `@elysiajs/swagger` → `@scalar/themes` → `@scalar/types`.** zod is loaded, but nothing
+    hands it a request. `@scalar/themes` imports `migrateThemeVariables` from
+    `@scalar/types/api-reference`, and that module defines zod schemas when it loads. The plugin's only
+    parse is `JSON.parse` of its own options. It takes a CSS string from `@scalar/themes` and
+    `JSON.stringify`s its own configuration into the page. Scalar's viewer runs in the reader's
+    browser, from a CDN.
+    - The routes are mounted only where `api-docs.ts#apiDocsServed` says so (S-11, #916). A master
+      never mounts them. Global under `NODE_ENV=production` mounts them only with
+      `SWAGGER_ENABLED=true`.
+    - No bump is in reach. `@elysiajs/swagger` 1.3.1 (June 2025) is its last release, and its
+      `@scalar/themes ^0.9.52` stops at 0.9.86, which pins `@scalar/types` 0.1.7 (zod `^3.23.8`).
+      `@scalar/types` 0.33 is on zod 4, but no 0.9 theme takes it. The successor plugin,
+      `@elysiajs/openapi` (1.4.x, no dependencies), is a change to `api-docs.ts`, not a dependency
+      bump.
 
 ---
 
