@@ -41,6 +41,7 @@ const SAYS_SO: Record<string, string> = {
   'services/src/biz/reservation.service.ts find { orgId, orderId, direction: \'incoming\', status: { $nin: LIVE_STATUSES_EXCLUDED } } as any': 'incoming: a receipt is outgoing',
   'services/src/biz/sale-counting.ts distinct CASH_SALE_REF_ID': 'only invoices carry a cash-sale link',
   'services/src/biz/settlement-backlog.ts distinct \'register.paidInvoiceId\'': 'names the type in its second argument',
+  'services/src/biz/settlement-backlog.ts distinct \'register.refundOf\'': 'names the type in its second argument (a storno)',
   'services/src/biz/supto-export.service.ts findMany invoiceQuery': 'names cash_sale where it is built',
   'services/src/biz/yearless-numbers.ts find { orgId, invoiceNumber: { $in: single.slice(i, i + 500).map(r => r.to) } }': 'a number taken is taken, whoever took it',
   'services/src/biz/supto-export.service.ts distinct \'relatedInvoiceId\'': 'names the type in its second argument',

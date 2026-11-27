@@ -243,8 +243,9 @@ test('P5 credit note: one returned article from an issued invoice', async ({ pag
   await expect.poll(async () => {
     const { invoices } = await api.get(`/invoices?type=credit_note&contactId=${customer._id}&size=10&sortBy=createdAt&sortOrder=desc`)
     issued = (invoices || []).find((i: any) => new Date(i.createdAt) >= since && String(i.relatedInvoiceId) === sourceId)
-    return issued?.status
-  }, { timeout: 15000 }).toBe('sent')
+    return issued?.status ?? ''
+    // Either, so the walk measures the old code too: the guard at the end wants the right one.
+  }, { timeout: 15000 }).toMatch(/^(sent|paid)$/)
   const cl = issued.lines?.[0] || {}
   walk.note(`Issued ${issued.invoiceNumber} (draft ${issued.draftNumber}), crediting ${cl.quantity} × ${cl.unitPrice} ${cl.unit} at ${cl.discount || 0} % off, total ${issued.total}; the success message says „${issuedMessageText}".`)
 
@@ -276,6 +277,11 @@ test('P5 credit note: one returned article from an issued invoice', async ({ pag
   expect(cl.lineTotal).toBeCloseTo(round2(charged * (1 + sourceLine.taxRate / 100)), 2)
   // B-16 / FR-22.14: issuing a credit note says so.
   expect(issuedMessageText).toContain('Кредитното известие е издадено')
+  // FR-25 R3 (2026-11-27): the demo org prints nothing, and the note takes its invoice's method (cash), so the
+  // counter's refund is recorded as the note is issued: nothing is left to give back.
+  const { invoice: refunded } = await api.get(`/invoices/${issued._id}`)
+  expect(refunded).toMatchObject({ status: 'paid', paymentMethod: 'cash', amountDue: 0 })
+  expect(refunded.payments).toEqual([expect.objectContaining({ method: 'cash', origin: 'cash_on_issue', amount: refunded.total })])
 })
 
 /** An amount as the bg UI prints it („1 234,56 €") as a number. */

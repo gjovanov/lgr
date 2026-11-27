@@ -17,9 +17,9 @@ import { enqueuePosting } from './postings/posting.service.js'
  * every client's open balance. A card sale followed in FR-22.19 (D-3): it cost a second dialog on
  * the list row, and the method picked a second time.
  *
- * `syncCashSettlement` brings ONE issued outgoing invoice in line with that rule. Every path
- * that issues or edits one calls it: `/send`, `PUT /invoices/:id` and the import conversion
- * (`convertDraftInvoice`), which is how most invoices arrive.
+ * `syncCashSettlement` brings ONE issued outgoing invoice or credit note in line with that rule.
+ * Every path that issues or edits one calls it: `/send`, `PUT /invoices/:id` and the import
+ * conversion (`convertDraftInvoice`), which is how most invoices arrive.
  *  - Method cash or card → whatever is still outstanding becomes one payment by that method,
  *    dated the invoice's issue date and marked with the method's origin (`cash_on_issue`,
  *    `card_on_issue`), and the document is paid. An edit that raises the total tops it up; one
@@ -32,6 +32,14 @@ import { enqueuePosting } from './postings/posting.service.js'
  *    can no longer be issued or voided. It is settled when it is issued.
  * Bank transfer and cash on delivery (наложен платеж) are deliberately not settled here: the
  * money comes later, from the bank or the courier.
+ *
+ * A credit note refunded at the counter gives its money back as it is issued: the same rule, the
+ * other way round (the owner's decision of 2026-11-27, FR-25 R3). Its refund is a payment row like
+ * any other, stored positive as the note is, so `amountPaid` is what went back and the note is
+ * `paid` once all of it has. Its journal entry is money out (`createPaymentJournalEntry`, FR-23
+ * §2.5). Until then such a note stayed due where nothing prints: the customer had the money in
+ * hand while aging took it off their balance, and the books' `501` showed a refund LGR never
+ * recorded. A debit note is not this rule's.
  *
  * ⚠ FR-23: where LGR prints (`settings.cashRegister.requireConnectedDevice` not off) a printed
  * receipt and its payment are the settlement, because money taken at the counter goes through the
@@ -62,6 +70,12 @@ const AUDIT_FIELD: Readonly<Record<string, string>> = { [CASH_ON_ISSUE]: 'cashOn
 
 /** Issued states: the document has its number and stands as a claim on the client. */
 const ISSUED = ['sent', 'overdue', 'partially_paid', 'paid']
+
+/** The outgoing documents this rule settles: an invoice paid at the counter, and a credit note refunded there. */
+export const SETTLED_TYPES: ReadonlySet<string> = new Set(['invoice', 'credit_note'])
+/** Whether `doc` is a document this rule settles once it is issued. */
+export const settlesOnIssue = (doc: { direction?: string; type?: string } | null | undefined): boolean =>
+  !!doc && doc.direction === 'outgoing' && SETTLED_TYPES.has(String(doc.type))
 
 export type CashSettlementAction = 'settled' | 'adjusted' | 'unsettled' | 'none'
 
@@ -112,7 +126,7 @@ async function applySettlement(orgId: string, invoiceId: string, userId: string,
   const settles = opts.settles !== false
   const r = getRepos()
   const inv: any = await r.invoices.findOne({ id: invoiceId, orgId } as any)
-  if (!inv || inv.direction !== 'outgoing' || inv.type !== 'invoice' || !ISSUED.includes(inv.status)) return NONE
+  if (!settlesOnIssue(inv) || !ISSUED.includes(inv.status)) return NONE
   // #171: an invoice for a cash sale was paid by that cash sale — its payment row says so, and
   // it is never this rule's to add, shrink or withdraw, whatever the sale was paid with.
   if (inv.cashSaleRef?.cashSaleId) return NONE
@@ -169,7 +183,7 @@ async function applySettlement(orgId: string, invoiceId: string, userId: string,
   const action: CashSettlementAction = withdrawn ? 'unsettled' : !settles || auto.length ? 'adjusted' : 'settled'
   const reason = withdrawn
     ? `${[...new Set(stale.map(p => METHOD_OF_ORIGIN[p.origin]))].join(', ')} payment withdrawn: method is now ${inv.paymentMethod || 'none'}`
-    : settles ? `paid ${origin === CARD_ON_ISSUE ? 'by card' : 'in cash'} on issue` : 'total edited'
+    : settles ? `${inv.type === 'credit_note' ? 'refunded' : 'paid'} ${origin === CARD_ON_ISSUE ? 'by card' : 'in cash'} on issue` : 'total edited'
   const statusHistory = status === inv.status
     ? inv.statusHistory || []
     : [...(inv.statusHistory || []), { status, fromStatus: inv.status, changedAt: new Date(), changedBy: userId, reason }]

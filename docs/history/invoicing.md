@@ -812,3 +812,39 @@ A movement is in the ledger one of two ways, never both (`services/biz/contact-l
 - ⚠ **Code moved from a `.vue` into a `.ts` file is linted for floating promises.** oxlint reads the `.ts` files, not
   the script blocks of `.vue` files: a `router.push(…)`, a `nextTick(…)` or an action left unawaited there is written
   `void …`, as `useOrderFormBase#deleteOrder` does.
+
+## A credit note refunded at the counter is refunded as it is issued (2026-11-27, FR-25 R3, #471)
+
+- **What.** `syncCashSettlement` (`services/biz/cash-settlement.service.ts`) settles an issued outgoing credit note
+  whose method is cash or card the way it settles an invoice paid at the counter: what it still has to give back
+  becomes one refund by that method, marked `cash_on_issue` / `card_on_issue` and dated the note's issue date, and
+  the note is `paid` with nothing due. The same three paths call it: `/send`, `PUT /invoices/:id` and the import
+  conversion. An edit follows as for an invoice: a lower total shrinks the automatic refund, another method withdraws
+  it (and voids its journal entry), and a refund a person recorded is never touched. Bank transfer and cash on
+  delivery stay due, a supplier's credit note and a debit note are not this rule's, and a draft is left alone.
+  `settlesOnIssue` says which documents the rule takes; the edit path asks it too.
+- **Why.** Where nothing prints, such a note stayed `sent` with its whole total due, as cash invoices did before
+  2026-10. The customer had their money back at the counter, yet aging took the note off what they owe and the
+  contact's open balance added it as a positive (a reader FR-23 R2 named and left alone), and the books' `501` showed
+  a refund LGR never recorded. The comparison of the books against the shadow ledger (FR-25 R3) found 5 such notes in
+  one org, all issued before this change, 3 of them in the months it compares. The owner chose this over settling the
+  5 by hand, which would have left every later one open in the same way.
+- **How its money reads.** The refund row is stored positive, as the note is, so `amountPaid` is what went back.
+  Its journal entry is money out, Dr receivable and Cr cash (`createPaymentJournalEntry`, FR-23 §2.5). The shadow
+  ledger books it on `501` as the books do (`sales.credit_note.cash` and `.card`, the note's operations negative),
+  because the shadow takes the rule's rows as paid at the counter (`PAID_AT_ISSUE_ORIGINS`).
+- **Where LGR prints, nothing changes for a note a person issues.** Its storno is the refund (FR-23 R2). The rule
+  settles a note there only where it settles an invoice (`ruleSettles`): an imported one, whose storno another system
+  printed, and a number issued twice.
+- **A number issued twice now counts its money once** (FR-20.51). The correction's re-issue is settled as it is
+  issued, and the credit note annulling the later document carries that document's method, so it now gives the same
+  money back as it is issued. Until now it stayed due, and the sale's money was recorded twice (on the annulled
+  document and on its re-issue) while the customer read a credit they were never owed.
+- ⚠ **A note refunded as it was issued takes no second refund** (400: it is `paid`, like an invoice paid at the
+  counter). To give the money back another way, change the note's method first: the rule withdraws its own row, and
+  the refund can then be recorded.
+- ⚠ **The backlog is `scripts/settle-cash-invoices.ts`, credit notes included** (`--type invoice|credit_note`, both by
+  default). A credit note with a storno tried is never selected, as an invoice with a receipt tried never is: its
+  refund is that storno's (`settlement-backlog.ts`).
+- Tests: `integration/cash-settlement.flow` (issue, edit, import, backlog), `integration/cash-invoice-refunds.flow`
+  (nothing prints: refunded at issue, its entry money out, the digest; an imported note where LGR prints).

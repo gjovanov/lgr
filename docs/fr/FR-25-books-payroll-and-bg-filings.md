@@ -1153,6 +1153,11 @@ causes. Counts only; the rows stayed with the person who ran it.
     were equal before the rules that book them on `501`.
 
   Revenue and VAT are as they were.
+- **The 5 credit notes: decided 2026-11-27, by a rule rather than by hand.** Asked whether to settle these 5 alone or to
+  have LGR refund every such note as it is issued, the owner chose the rule. `syncCashSettlement` now refunds an issued
+  credit note in cash or by card on its issue date, as it pays an invoice paid at the counter, in every org (where LGR
+  prints, a note a person issues still refunds on its storno), and `scripts/settle-cash-invoices.ts` takes the notes
+  issued before (`--type credit_note`). `docs/history/invoicing.md` has the rule.
 
 ### R3: the accountant's override of a group's average, as built
 

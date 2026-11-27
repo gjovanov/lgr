@@ -6,7 +6,8 @@ import { allowSalesWithoutPrinter, createTestOrg, createTestUser, createTestCont
 import { invoiceController } from 'api/src/invoicing/controllers/invoice.controller'
 import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { convertDraftInvoice } from 'services/biz/doc-import/persist'
-import { CASH_ON_ISSUE } from 'services/biz/cash-settlement.service'
+import { CASH_ON_ISSUE, syncCashSettlement } from 'services/biz/cash-settlement.service'
+import { unsettledInvoices } from 'services/biz/settlement-backlog'
 
 /** FR-22.19 (D-3): what a card payment taken at the counter is marked with. A literal, not an
  *  import: the code this test is written against before the rule existed had no such export. */
@@ -208,16 +209,149 @@ describe('the other ways in', () => {
     expect(inv.payments.map((p: any) => [p.amount, p.method, p.origin])).toEqual([[80, 'cash', CASH_ON_ISSUE]])
   })
 
-  it('only outgoing invoices: a supplier bill and a credit note paid in cash stay as they were', async () => {
+  it('only outgoing documents: a supplier bill paid in cash stays as it was', async () => {
     const w = await world()
     const bill = await w.draft('cash', 120, { direction: 'incoming' })
     await call('POST', `/org/${w.orgId}/invoices/${bill}/receive`, w.token, {})
     expect((await w.load(bill)).status).toBe('received')
+    expect((await w.load(bill)).payments).toHaveLength(0)
+  })
+})
+
+/**
+ * FR-25 R3 (the owner's decision of 2026-11-27): a credit note refunded at the counter gives its money back as it is
+ * issued, the invoice's rule the other way round. Where nothing prints it used to stay `sent` with its whole total due:
+ * the customer had their money back, yet aging took the note off what they owe, and the books' `501` showed a refund
+ * LGR never recorded.
+ */
+describe('a credit note in cash or by card is refunded as it is issued (FR-25 R3)', () => {
+  /** A credit note of `total` on an issued bank invoice of 120, as a draft. */
+  async function noteOf(w: Awaited<ReturnType<typeof world>>, method: string, total = 30, extra: Record<string, any> = {}) {
     const inv = await w.draft('bank_transfer')
-    await w.send(inv)
-    const note = await w.draft('cash', 30, { type: 'credit_note', relatedInvoiceId: inv })
+    expect((await w.send(inv)).status).toBe(200)
+    return w.draft(method, total, { type: 'credit_note', relatedInvoiceId: inv, ...extra })
+  }
+  const rows = (n: any) => n.payments.map((p: any) => [p.amount, p.method, p.origin ?? null])
+
+  it('in cash: its whole total goes back as one refund, dated the issue date, and nothing is left due', async () => {
+    const w = await world()
+    const note = await noteOf(w, 'cash')
+
+    const res = await w.send(note)
+
+    expect(res.status).toBe(200)
+    expect(res.json.invoice.status).toBe('paid')
+    const n = await w.load(note)
+    expect(n).toMatchObject({ status: 'paid', total: 30, amountPaid: 30, amountDue: 0 })
+    expect(rows(n)).toEqual([[30, 'cash', CASH_ON_ISSUE]])
+    expect(new Date(n.payments[0].date).toISOString().slice(0, 10)).toBe(ISSUE_DATE)
+    expect(new Date(n.paidAt).toISOString().slice(0, 10)).toBe(ISSUE_DATE)
+    expect(n.statusHistory.at(-1)).toMatchObject({ fromStatus: 'sent', status: 'paid', reason: 'refunded in cash on issue' })
+    // The event a refund recorded by hand emits: a ledger that is kept posts it as money out (FR-23 §2.5).
+    expect(recorded).toEqual([expect.objectContaining({ invoiceId: note, amount: 30, method: 'cash' })])
+  })
+
+  it('by card: the same, by card', async () => {
+    const w = await world()
+    const note = await noteOf(w, 'card')
+    expect((await w.send(note)).status).toBe(200)
+    const n = await w.load(note)
+    expect(n).toMatchObject({ status: 'paid', amountPaid: 30, amountDue: 0 })
+    expect(rows(n)).toEqual([[30, 'card', CARD_ON_ISSUE]])
+    expect(n.statusHistory.at(-1).reason).toBe('refunded by card on issue')
+  })
+
+  it('bank transfer and cash on delivery stay due: that money goes back later', async () => {
+    const w = await world()
+    for (const method of ['bank_transfer', 'cash_on_delivery']) {
+      const note = await noteOf(w, method)
+      expect((await w.send(note)).status).toBe(200)
+      const n = await w.load(note)
+      expect({ method, status: n.status, due: n.amountDue, payments: n.payments.length }).toEqual({ method, status: 'sent', due: 30, payments: 0 })
+    }
+    expect(recorded).toHaveLength(0)
+  })
+
+  it('a draft is left alone: it gives nothing back until it is issued', async () => {
+    const w = await world()
+    const note = await noteOf(w, 'bank_transfer')
+    expect((await w.put(note, { paymentMethod: 'cash' })).status).toBe(200)
+    const n = await w.load(note)
+    expect([n.status, n.payments.length, n.amountDue]).toEqual(['draft', 0, 30])
+  })
+
+  it('an edit follows: another method takes the refund back, a refund recorded by hand stays, and a counter method gives the rest', async () => {
+    const w = await world()
+    const note = await noteOf(w, 'cash')
     await w.send(note)
-    expect((await w.load(note)).status).toBe('sent')
+
+    expect((await w.put(note, { paymentMethod: 'bank_transfer' })).json.invoice.status).toBe('sent')
+    let n = await w.load(note)
+    expect([n.amountPaid, n.amountDue, n.payments.length, n.paidAt]).toEqual([0, 30, 0, null])
+
+    expect((await w.pay(note, { date: '2026-10-06', amount: 10, method: 'bank_transfer' })).status).toBe(200)
+    await w.put(note, { paymentMethod: 'card' })
+    n = await w.load(note)
+    expect(n).toMatchObject({ status: 'paid', amountPaid: 30, amountDue: 0 })
+    expect(rows(n)).toEqual([[10, 'bank_transfer', null], [20, 'card', CARD_ON_ISSUE]])
+  })
+
+  it('a lower total gives back less: the automatic refund shrinks to the new total', async () => {
+    const w = await world()
+    const note = await noteOf(w, 'cash')
+    await w.send(note)
+
+    await w.put(note, { lines: [{ description: 'Монтаж', quantity: 1, unitPrice: 20, taxRate: 0 }], subtotal: 20, total: 20 })
+
+    const n = await w.load(note)
+    expect(n).toMatchObject({ status: 'paid', total: 20, amountPaid: 20, amountDue: 0 })
+    expect(rows(n)).toEqual([[20, 'cash', CASH_ON_ISSUE]])
+  })
+
+  it('a note refunded as it was issued takes no second refund: it is paid, as an invoice paid at the counter is', async () => {
+    const w = await world()
+    const note = await noteOf(w, 'cash')
+    await w.send(note)
+    const again = await w.pay(note, { date: '2026-10-06', amount: 1, method: 'cash' })
+    expect(again.status).toBe(400)
+    expect(again.json.message).toBe('Cannot record payment on this invoice')
+    expect((await w.load(note)).payments).toHaveLength(1)
+  })
+
+  it('the import conversion refunds an imported one as it issues it', async () => {
+    const w = await world()
+    const note = await noteOf(w, 'cash', 30, { reference: '3000704998' })
+    const res = await convertDraftInvoice(w.orgId, note, w.userId, { adjustStock: false })
+    expect(res.ok).toBe(true)
+    const n = await w.load(note)
+    expect(n.status).toBe('paid')
+    expect(rows(n)).toEqual([[30, 'cash', CASH_ON_ISSUE]])
+  })
+
+  it('a supplier\'s credit note in cash stays as it was: the rule gives back only what a customer paid us', async () => {
+    const w = await world()
+    const bill = await w.draft('bank_transfer', 120, { direction: 'incoming' })
+    await call('POST', `/org/${w.orgId}/invoices/${bill}/receive`, w.token, {})
+    const note = await w.draft('cash', 30, { type: 'credit_note', direction: 'incoming', relatedInvoiceId: bill })
+    await call('POST', `/org/${w.orgId}/invoices/${note}/receive`, w.token, {})
+    const n = await w.load(note)
+    expect([n.status, n.payments.length]).toEqual(['received', 0])
+  })
+
+  it('the backlog: a note issued before the rule is found and refunded, and the next run finds none', async () => {
+    const w = await world()
+    const note = await noteOf(w, 'bank_transfer')
+    await w.send(note)
+    // As a note issued before 2026-11-27: cash, and nothing given back.
+    await Invoice.updateOne({ _id: note }, { $set: { paymentMethod: 'cash' } })
+
+    const due = await unsettledInvoices(w.orgId, ['cash', 'card'])
+    expect(due.map(d => [d.id, d.type, d.outstanding])).toEqual([[note, 'credit_note', 30]])
+    expect(await unsettledInvoices(w.orgId, ['cash', 'card'], ['invoice'])).toEqual([])
+
+    expect(await syncCashSettlement(w.orgId, note, w.userId)).toEqual({ action: 'settled', amount: 30 })
+    expect(await w.load(note)).toMatchObject({ status: 'paid', amountPaid: 30, amountDue: 0 })
+    expect(await unsettledInvoices(w.orgId, ['cash', 'card'])).toEqual([])
   })
 })
 
@@ -321,11 +455,11 @@ describe('a card invoice is paid on issue, like cash (FR-22.19)', () => {
     expect(inv.payments.map((p: any) => p.amount)).toEqual([50])
   })
 
-  it('only sales invoices: a credit note paid by card stays as it was', async () => {
+  it('a debit note paid by card stays as it was: it is not this rule\'s', async () => {
     const w = await world()
     const inv = await w.draft('bank_transfer')
     await w.send(inv)
-    const note = await w.draft('card', 30, { type: 'credit_note', relatedInvoiceId: inv })
+    const note = await w.draft('card', 30, { type: 'debit_note', relatedInvoiceId: inv })
     await w.send(note)
     expect((await w.load(note)).status).toBe('sent')
     expect((await w.load(note)).payments).toHaveLength(0)

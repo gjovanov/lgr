@@ -5,7 +5,7 @@ import { grantOf } from '../access/evaluate.js'
 import { keepStoredTrails } from '../access/price-trails.js'
 import { createAuditEntry, diffChanges } from '../audit-log.service.js'
 import { CashSaleInvoiceError, checkInvoiceForCashSaleEdit, liveInvoiceNumbersFor } from '../cash-sale-invoice.service.js'
-import { syncCashSettlement } from '../cash-settlement.service.js'
+import { settlesOnIssue, syncCashSettlement } from '../cash-settlement.service.js'
 import { isImmutableRegisterDocument, REGISTER_DOCUMENT_IMMUTABLE } from '../cash-register/immutability.js'
 import { DOCUMENT_CHANGED, DOCUMENT_CLAIMED, freezeRefusal, owedByMovingToDelivery } from '../cash-register/payment-receipt.service.js'
 import { movesPrintedMoney } from '../cash-register/receipt-lines.js'
@@ -257,17 +257,18 @@ export async function updateDocument(req: UpdateRequest): Promise<unknown> {
   await syncOrderForInvoice(orgId, updated || existing, user.id)
 
   // An issued invoice edited to cash (or its total changed while cash) is paid; one edited
-  // away from cash gives back the payment that rule recorded. Drafts are untouched.
+  // away from cash gives back the payment that rule recorded. A credit note the same, its
+  // refund. Drafts are untouched.
   // ⚠ FR-23: where LGR prints the rule does not settle. That money goes through the payment
   // action, which prints, and an edit must not take it silently. An imported document never
   // prints, so the rule stays its own.
   let settled = false
-  if (existing.direction === 'outgoing' && existing.type === 'invoice' && existing.status !== 'draft') {
+  if (settlesOnIssue(existing) && existing.status !== 'draft') {
     const settlement = await syncCashSettlement(orgId, id, user.id, { settles: await ruleSettles(orgId, updated ?? existing) })
     settled = settlement.action !== 'none'
     if (settled) updated = await r.invoices.findOne({ id, orgId })
   }
-  // Whatever that rule left alone: a note, a bill, a draft, an invoice paid by bank. A cash sale owes
+  // Whatever that rule left alone: a debit note, a bill, a draft, a document paid by bank. A cash sale owes
   // nothing, and an invoice for one is the service's above.
   const owes = existing.type !== 'cash_sale' && !existing.cashSaleRef?.cashSaleId
   if (!settled && owes && updated && round2(updated.total) !== round2(existing.total)) {
