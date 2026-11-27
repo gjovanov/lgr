@@ -21,6 +21,7 @@
 import type { mongo } from 'mongoose'
 import { Invoice } from 'db/models'
 import { assertHomeIsHere } from 'db/home/home'
+import { withNumberParts } from 'db/plugins/invoice-number-parts'
 import { CashRegisterMappingError, exchangeRateFor, fromPosTransaction, toPosTransaction } from './mapping.js'
 import { REGISTER_TYPES } from './pos-union.js'
 import { keptByMethod, posRowSign } from './counting.js'
@@ -222,7 +223,8 @@ export async function copyPosRows(db: Db, orgId: string): Promise<{ copied: numb
     if (wrong.length) throw new CashRegisterCopyError(orgId, wrong)
     if (docs.length) {
       try {
-        const res = await db.collection('invoices').insertMany(docs, { ordered: false })
+        // #929: a copy's running number from its number (the POS transaction number), as every invoice write gets one.
+        const res = await db.collection('invoices').insertMany(docs.map(withNumberParts), { ordered: false })
         copied += res.insertedCount
       } catch (e: any) {
         // A copy made in the meantime (a storno or a keyed retry copies one on the spot) is the same

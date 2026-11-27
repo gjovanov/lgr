@@ -217,6 +217,9 @@ describe('the audited import of a fenced export (FR-20.84)', () => {
     const draft: any = await Invoice.collection.findOne({ _id: w.ids.draft } as any)
     expect(draft.invoiceNumber).toBe(`DRF-INV-${year}-00004`)
     expect(draft.importedFrom.number).toBe(`DRF-INV-${year}-00003`)
+    // #929: the site wrote no running number (an older server); the import derives it from the number it KEPT.
+    expect(draft).toMatchObject({ numberHead: `DRF-INV-${year}`, numberSeq: 4 })
+    expect(await Invoice.collection.findOne({ _id: w.ids.invoice50 } as any)).toMatchObject({ numberHead: `INV-${year}`, numberSeq: 50 })
     // ── the document and its file, where the row says; the site's trail ──
     expect(await db().collection('docfiles').findOne({ _id: w.ids.doc })).toBeTruthy()
     expect(sha(readFileSync(join(root, 'global', ...w.rel.split('/'))))).toBe(sha(w.content))

@@ -22,5 +22,6 @@
   "0020-legacy-access-archive-drop": "77944d06f1f2c75632104d4f634465168e7f988014f4e4581ae053505262c7ad",
   "0021-relay-receipts-kept-60-days": "1b7e02c287f243e996ed571a7cda607bdc434492084230b9afb36ebf2b111f51",
   "0022-drop-unused-indexes-fr30-5": "373513c6b75639a090bab6cefa75a2a4e6750deab8ece4401bcb2e03aaa08dcc",
-  "0023-imported-line-totals-gross": "3ad3022aeb5f9716ace524ef17806d6be587e7af5a599a35180e30d0ce618173"
+  "0023-imported-line-totals-gross": "3ad3022aeb5f9716ace524ef17806d6be587e7af5a599a35180e30d0ce618173",
+  "0024-invoice-number-parts": "cc84f8cd8312b69340fff65123517eba58a23801ed7b5f75656fd49d7120c72a"
 }

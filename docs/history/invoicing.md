@@ -870,3 +870,30 @@ A movement is in the ledger one of two ways, never both (`services/biz/contact-l
 - Tests: `integration/cash-settlement.flow` (in cash and by card, bank and cash on delivery, a draft, an edit, a second
   payment, the import conversion, the backlog), `integration/cash-invoice-receipts.flow` (nothing prints: paid at
   issue, its money in the digest).
+
+## The next number is read from a stored running number (2026-11-27, #929)
+
+- **What.** Every invoice stores its running number: `numberHead` (what stands before the number's last dash) and
+  `numberSeq` (the digits after it), from ONE parse, `db/plugins/invoice-number-parts#numberPartsOf`.
+  `currentMaxSuffix` reads the highest `numberSeq` per head through `{orgId, numberHead, numberSeq: -1}`
+  (`invoice_number_seq`): a key per head, and a distinct scan of the org's heads for a continuous series. Which heads
+  belong to a series is decided when the number is asked for, from the org's prefixes, as the scan's pattern did, so a
+  renamed prefix, the legacy aliases and a series that became continuous read as before.
+- **Why.** The scan read every number of the org at each allocation and each form's "next number": in the #785 soak a
+  sale examined as many keys as the org had invoices, and an issued sales document was re-planned every time, about
+  18 µs per invoice of the org.
+- **Before the backfill.** A document without `numberHead` (written before, or raw by something that did not derive
+  it) is read by the old scan, restricted to such documents; one indexed read says whether the org has any. Migration
+  `0024-invoice-number-parts` fills them, recomputes stale ones, and builds the index.
+- ⚠ **The parts are the server's alone.** Every Mongoose write derives them from `invoiceNumber` (save, insertMany, the
+  update and replace queries, which also drop any value an update names for them). Every RAW writer of an invoice calls
+  `withNumberParts` / `withDerivedFields` itself: replication's apply, the fenced and kept imports, a move's import, a
+  backup restore, an org copy, the till's POS copy. A new raw writer of invoices must too: without them its documents
+  fall back to the scan, and a raw write that changes the number of a document that has parts leaves them stale.
+- ⚠ **They never travel between servers.** A move's bundle leaves them out (`moveProjection`, `DERIVED_FIELDS`), the
+  move-back digests skip them (`homeLine`), and global derives them where it applies a page, never trusting what a
+  master sent: a master older than #929 sends none.
+- Tests: `unit/invoice-number-parts` (the formats, the head reading against the scan's pattern),
+  `integration/invoice-number-parts.flow` (every write path, mixed widths, an org not yet backfilled and the migration,
+  the cost at 200 and 4 000 invoices, a move), `integration/invoice-number-parts-mirror.flow` (an older master's page),
+  `integration/fenced-import.flow`.

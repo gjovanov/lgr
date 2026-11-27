@@ -12,6 +12,7 @@ paths:
   - "packages/services/src/biz/document-*"
   - "packages/services/src/biz/document/**"
   - "packages/db/src/models/invoice*"
+  - "packages/db/src/plugins/invoice-number-parts*"
   - "packages/reporting/**"
 ---
 
@@ -24,6 +25,18 @@ Why each one exists, and what was built around it: [`docs/history/invoicing.md`]
 ## Draft+Issued Invoice Numbering (2026-04-28)
 
 Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/OFR/CN/DN/BILL); cash sales skip drafts (CS direct). On `/send` or `/receive`, `issueDocument` allocates a new issued number from the canonical SALES_DOC/PROFORMA/OFFER/BILL counter (last, inside the issue's transaction: FR-29.11), sets `draftNumber = previousInvoiceNumber`, replaces `invoiceNumber`, and appends to `numberHistory[]`. Display prefix override (per-org-global) lives on the Sequence year=0 sentinel doc; future allocations only. **Documents are editable in EVERY status** — PUT applies no status or posting check. The edit-sent guard (409 when a posted JournalEntry referenced the invoice, with credit-note remediation) was **removed**; ⚠ an edit to a posted document does NOT re-post, so the JournalEntry keeps its pre-edit amounts and trial balance / P&L / balance sheet report the stale figures with nothing marking them so — repost is manual. DELETE keeps its draft-only guard. Configuration page at `/invoicing/configuration/sequences` (admin/manager only).
+
+## The next number is read from a stored running number (2026-11-27, #929)
+
+- ⚠ **The parts are the server's alone.** Every Mongoose write derives them from `invoiceNumber` (save, insertMany, the
+  update and replace queries, which also drop any value an update names for them). Every RAW writer of an invoice calls
+  `withNumberParts` / `withDerivedFields` itself: replication's apply, the fenced and kept imports, a move's import, a
+  backup restore, an org copy, the till's POS copy. A new raw writer of invoices must too: without them its documents
+  fall back to the scan, and a raw write that changes the number of a document that has parts leaves them stale.
+
+- ⚠ **They never travel between servers.** A move's bundle leaves them out (`moveProjection`, `DERIVED_FIELDS`), the
+  move-back digests skip them (`homeLine`), and global derives them where it applies a page, never trusting what a
+  master sent: a master older than #929 sends none.
 
 ## A sales series without a year (2026-11-15)
 
