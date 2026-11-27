@@ -141,6 +141,65 @@ for (const screen of SCREENS) {
   })
 }
 
+/** Details' leave transition made to last 2.5 s, as it lasted in the field (#933): there the add button held the cursor. */
+const LEAVE_SLOWLY = '.v-overlay__content.dialog-transition-leave-active { transition: transform 2500ms linear, opacity 2500ms linear !important }'
+  + ' .v-overlay__content.dialog-transition-leave-to { opacity: 0 !important }'
+
+test('invoice lines, Details: the cursor reaches the first article added while the dialog is still leaving (#974)', async ({ page }) => {
+  // The stock count's #933 on invoice lines: the click on "Add N articles" focuses that button, and the button keeps
+  // the cursor while the dialog runs its leave transition. The line read that as "the person moved on" and left the
+  // cursor on <body>. In CI the leave (125 ms) is over before the line looks (200 ms after the pick), so it is
+  // stretched here.
+  const fx = await fixture()
+  await loginForApp(page)
+  await page.goto('/invoicing/invoices/new')
+  await page.addStyleTag({ content: LEAVE_SLOWLY })
+  const line = (n: number) => page.locator('.line-table').first().locator('tbody tr').nth(n)
+  const qtyOf = (n: number) => line(n).locator('input[type="number"]').first()
+  const searchOf = (n: number) => line(n).locator('[data-testid="product-field"] input').first()
+  async function openDetailsFrom(n: number) {
+    await line(n).getByTestId('product-details').click()
+    await expect(dialog(page)).toBeVisible()
+    await dialog(page).locator('[data-testid="filter-search"] input').fill(`${PREFIX}-${fx.stamp}`)
+    await waitForRows(page, COUNT)
+  }
+
+  // A click on "Add 2 articles" from the first line: the cursor is in its quantity while the dialog is on its way out.
+  await openDetailsFrom(0)
+  await rows(page).nth(6).click()
+  await rows(page).nth(7).click()
+  await page.getByTestId('product-picker-add').click()
+  await expect(qtyOf(0)).toBeFocused({ timeout: 1500 })
+  expect(await dialog(page).count(), 'the dialog is still leaving').toBe(1)
+  // And it stays there once the dialog, and the button that held the cursor, are gone.
+  await expect(dialog(page)).toHaveCount(0, { timeout: 5000 })
+  await expect(qtyOf(0)).toBeFocused()
+  await expect.poll(async () => (await fieldValues(page)).slice(0, 2), { timeout: 10000 }).toEqual([
+    expect.stringContaining(fx.name(7)), expect.stringContaining(fx.name(8)),
+  ])
+
+  // Enter in Details' search adds the ticked article: that field holds the cursor while the dialog leaves.
+  await openDetailsFrom(2)
+  await rows(page).nth(8).click()
+  await dialog(page).locator('[data-testid="filter-search"] input').click()
+  await page.keyboard.press('Enter')
+  await expect(qtyOf(2)).toBeFocused({ timeout: 2000 })
+  await expect(dialog(page)).toHaveCount(0, { timeout: 5000 })
+  await expect(qtyOf(2)).toBeFocused()
+
+  // FR-28.27: a person who has gone on to the next blank line's search meanwhile keeps the cursor there.
+  await page.getByRole('button', { name: /^add line$/i }).click()
+  await expect(page.locator('.line-table').first().locator('tbody tr')).toHaveCount(5)
+  await openDetailsFrom(3)
+  await rows(page).nth(9).click()
+  await page.getByTestId('product-picker-add').click()
+  await searchOf(4).focus()
+  await expect.poll(async () => (await fieldValues(page))[3], { timeout: 10000 }).toContain(fx.name(10))
+  await expect(dialog(page)).toHaveCount(0, { timeout: 5000 })
+  await expect(searchOf(4)).toBeFocused()
+  await expect(qtyOf(3)).not.toBeFocused()
+})
+
 test('the dialog shows the Products list\'s columns, and a bill or supplier order also shows the cost it starts from', async ({ page }) => {
   await loginForApp(page)
   await page.goto('/inventory/products')

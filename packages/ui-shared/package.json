@@ -48,6 +48,7 @@
     "./composables/useSearchDebounce": "./src/composables/useSearchDebounce.ts",
     "./composables/latest-only": "./src/composables/latest-only.ts",
     "./composables/field-search": "./src/composables/field-search.ts",
+    "./composables/pick-cursor": "./src/composables/pick-cursor.ts",
     "./composables/price-lookups": "./src/composables/price-lookups.ts",
     "./composables/load-failure": "./src/composables/load-failure.ts",
     "./composables/useFormFeedback": "./src/composables/useFormFeedback.ts",

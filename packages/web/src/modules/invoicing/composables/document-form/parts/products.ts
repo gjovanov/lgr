@@ -4,6 +4,7 @@
  * product update, the next blank line, and the cursor on the quantity.
  */
 import { computed } from 'vue'
+import { cursorWherePickLeft } from 'ui-shared/composables/pick-cursor'
 import type { FormState } from './state'
 import type { FormPricing } from './pricing'
 import type { FormProductUpdate } from './product-update'
@@ -60,17 +61,17 @@ export function useFormProducts(s: FormState, pricing: FormPricing, gr: FormProd
 
   /**
    * After a pick the cursor goes to the line's quantity, deferred past the search closing (and a dialog handing focus
-   * back). Only while the cursor is still where the pick left it — on this line, or nowhere: a user who has already
-   * moved on to another field keeps it.
+   * back). Only while the cursor is still where the pick left it (`ui-shared` `pick-cursor.ts`): on this line (its
+   * search field or Details button), nowhere, or in Details while it leaves (#974). A user who has already moved on
+   * to another field, the next blank line's search among them, keeps it.
    */
   function focusLineQuantity(idx: number) {
     if (typeof document === 'undefined') return
     setTimeout(() => {
       const row = document.querySelectorAll('.line-table tbody tr')[idx] as HTMLElement | undefined
       const input = row?.querySelector('input[type="number"]') as HTMLInputElement | null
-      if (!input || input.disabled || input.readOnly) return
-      const active = document.activeElement
-      if (active && active !== document.body && !row!.contains(active)) return
+      if (!row || !input || input.disabled || input.readOnly) return
+      if (!cursorWherePickLeft(document.activeElement, document.body, (el) => row.contains(el))) return
       input.focus()
       try { input.select() } catch { /* a number input may refuse select() */ }
     }, 200)

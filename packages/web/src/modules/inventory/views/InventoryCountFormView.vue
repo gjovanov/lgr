@@ -179,7 +179,7 @@ import { searchTextMatcher } from 'config/search-text'
 import CountEntryLine from '../components/CountEntryLine.vue'
 import { countPayload, lineFromLevel, lineNumbers, missingLevels, type CountLine } from '../composables/count-lines'
 import { useCountGridKeys } from '../composables/count-grid-keys'
-import { cursorWherePickLeft } from '../composables/count-cursor'
+import { cursorWherePickLeft } from 'ui-shared/composables/pick-cursor'
 import { describeCountLines, useCountArticles } from '../composables/useCountArticles'
 
 interface Warehouse { _id: string; name: string }
@@ -358,8 +358,8 @@ function rowProps({ item }: { item: CountLine }) {
 
 /**
  * FR-33.7: a line brought into view, through a filter that hid it and past rows the virtual table has not drawn, and
- * the cursor in its Counted. FR-28.27: only while the cursor is still where the pick left it (`count-cursor.ts`): a user
- * who has moved on to another field keeps it.
+ * the cursor in its Counted. FR-28.27: only while the cursor is still where the pick left it (`ui-shared` `pick-cursor.ts`):
+ * a user who has moved on to another field keeps it.
  */
 async function revealLine(productId: string) {
   if (!shownLines.value.some((l) => String(l.productId) === productId)) {
@@ -371,7 +371,9 @@ async function revealLine(productId: string) {
   setTimeout(() => {
     // Where the pick left it: nowhere, the entry line's Details button, or Details' own "Add N articles" while the
     // dialog leaves (#933). A cursor in the fresh entry field was put there since, by a person finding the next one.
-    if (cursorWherePickLeft(document.activeElement, document.body)) void focusLine(productId)
+    // The entry line is its Details button here, never its field (the fresh search).
+    const onEntryLine = (el: Element) => !!el.closest('[data-testid="count-entry"]') && el.tagName !== 'INPUT'
+    if (cursorWherePickLeft(document.activeElement, document.body, onEntryLine)) void focusLine(productId)
   }, 200)
 }
 

@@ -449,6 +449,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { createOrder, exportOrderGroup, getOrder, supplierOrderRoutes, updateOrder } from '../api/orders'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import { cursorWherePickLeft } from 'ui-shared/composables/pick-cursor'
 import { triggerBlobDownload } from 'ui-shared/composables/useInvoicingExport'
 import { upsertAmountInWords } from 'config/amount-in-words'
 import EntityFormShell, { type FormAction, type StatusDef } from 'ui-shared/components/EntityFormShell.vue'
@@ -582,8 +583,9 @@ function onProductSelected(line: LineRow, product: any) {
 }
 /**
  * FR-28.27: after a pick the cursor goes to the line's quantity, deferred past the search closing (and a dialog
- * handing focus back). Only while the cursor is still where the pick left it, on this line or nowhere: a user who
- * has already moved on to another field keeps it. The quantity field says which line it belongs to (`data-line-qty`).
+ * handing focus back). Only while the cursor is still where the pick left it (`ui-shared` `pick-cursor.ts`): on this
+ * line's row, nowhere, or in Details while it leaves (#974). A user who has already moved on to another field keeps
+ * it. The quantity field says which line it belongs to (`data-line-qty`).
  */
 function focusLineQuantity(line: LineRow) {
   if (typeof document === 'undefined') return
@@ -593,8 +595,8 @@ function focusLineQuantity(line: LineRow) {
     const id = lineNodeId(line, gi, form.supplierGroups[gi].lines.indexOf(line))
     const input = document.querySelector<HTMLInputElement>(`[data-line-qty="${CSS.escape(id)}"] input`)
     if (!input || input.disabled || input.readOnly) return
-    const active = document.activeElement
-    if (active && active !== document.body && !input.closest('tr')?.contains(active)) return
+    const row = input.closest('tr')
+    if (!cursorWherePickLeft(document.activeElement, document.body, (el) => !!row?.contains(el))) return
     input.focus()
     try { input.select() } catch { /* a number input may refuse select() */ }
   }, 200)
