@@ -519,6 +519,38 @@ always wins, and setup never edits this file. Set something here only to change 
 | `NIGHT_RESTART` | Linux: `off` stops the server restarting itself at night for a library a security update replaced. See [Security updates](#security-updates-on-ubuntu-and-debian). |
 | `PDF_CHROME_NO_SANDBOX` | `1` runs the PDF browser without its sandbox, for a machine that refuses it one: an Ubuntu 24.04 without the package's AppArmor profile (see [Ubuntu and Debian](#ubuntu-and-debian)). Set it only where the start check in `logs/lgr-server.log` says the browser does not print for its sandbox. Only `1` turns the sandbox off. **In the container image it is `1` unless set**, and `0` keeps the sandbox where the host grants the container a user namespace (see [PDFs in a container](#pdfs-in-a-container-the-browsers-sandbox)). |
 
+## Behind a TLS-inspecting proxy
+
+A proxy that inspects TLS signs every site with a CA of its own. If the machine's trust store holds
+that CA (a corporate machine usually gets it by group policy), there is nothing to do: the server's
+calls to lgrai.app, the API's and the update helper's, are verified against that store.
+
+If it does not, name the CA (a PEM file) in the **server service's** environment as
+`LGR_SERVER_EXTRA_CA`, as an administrator, then restart the service:
+
+- **Linux:** `sudo systemctl edit lgr-server`, then
+  ```
+  [Service]
+  Environment=LGR_SERVER_EXTRA_CA=/etc/ssl/certs/corp-proxy-ca.pem
+  ```
+  and `sudo systemctl restart lgr-server`. A line in an `EnvironmentFile=` of the unit works too.
+- **Windows:** the service's `Environment` value, then `Restart-Service LGRServer`:
+  ```
+  reg add HKLM\SYSTEM\CurrentControlSet\Services\LGRServer /v Environment /t REG_MULTI_SZ /d "LGR_SERVER_EXTRA_CA=<the CA's PEM file>" /f
+  ```
+  ⚠ `reg add` replaces the whole value: keep any other line it holds, separated by `\0`.
+- **In a container:** the compose or k8s file's environment. The image is updated by its tag.
+
+The update helper reads the CA from the service's own configuration, so the one setting covers
+updates as well (gjovanov/lgr#965: before it, the helper never saw the CA, and a server set up this
+way ran but never updated).
+
+- Keep the file where only administrators can write. Never put it under the data directory, which
+  the service account may change.
+- A file that holds no certificate is an error. The server runs but cannot reach lgrai.app, and
+  `logs/lgr-server.log` says why. The helper's update attempt fails too: `lgr-server status` shows
+  `failing` with the reason.
+
 ## What is inside a version
 
 `HOME.json` says what the home is: its version, commit, target and the versions it carries, and

@@ -70,6 +70,9 @@ windows-sys = { version = "0.59", features = [
   # FR-20.20 — an update's exe is signed by exactly G ROX LTD (`signatures.rs`).
   "Win32_Security_WinTrust",
   "Win32_System_Services",
+  # #965 — the CA the LGRServer service's own Environment value names, read by the update helper
+  # (`service_env.rs`).
+  "Win32_System_Registry",
   "Win32_System_JobObjects",
   "Win32_System_Threading",
   "Win32_System_Console",

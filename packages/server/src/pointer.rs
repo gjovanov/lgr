@@ -380,7 +380,9 @@ mod unix {
         (target.parent()? == Path::new(crate::install::VERSIONS_DIR)).then(|| target.file_name().map(|v| v.to_string_lossy().into_owned())).flatten()
     }
 
-    fn systemctl(args: &[&str]) -> Result<String> {
+    /// `systemctl <args>`'s answer: also what the update helper reads the service's configuration
+    /// from (`service_env.rs`).
+    pub fn systemctl(args: &[&str]) -> Result<String> {
         let out = std::process::Command::new("systemctl").args(args).output().context("running systemctl")?;
         if !out.status.success() {
             anyhow::bail!("systemctl {args:?}: {}", String::from_utf8_lossy(&out.stderr).trim());
