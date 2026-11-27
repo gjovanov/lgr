@@ -225,8 +225,8 @@ describe('a note started from the invoice it corrects (FR-22.21)', () => {
       }, DOCUMENT_CONFIGS[type]))
       const issued = await sendIssue(w.client, w.orgUrl, String(data.invoice.id))
 
-      // Where nothing prints, a credit note by card is refunded as it is issued (FR-25 R3); a debit note is owed.
-      expect(issued).toMatchObject({ type, status: type === 'credit_note' ? 'paid' : 'sent', currency: 'USD', exchangeRate: 0.92, paymentMethod: 'card' })
+      // Where nothing prints, a note by card is settled as it is issued: a credit note refunded, a debit note paid (FR-25 R3).
+      expect(issued).toMatchObject({ type, status: 'paid', currency: 'USD', exchangeRate: 0.92, paymentMethod: 'card' })
       expect(String(issued.relatedInvoiceId)).toBe(String(invoice.id))
       expect(String(issued.contactId)).toBe(w.contactId)
       expect(issued.lines).toHaveLength(1)

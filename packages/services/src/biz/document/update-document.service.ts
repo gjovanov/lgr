@@ -257,8 +257,8 @@ export async function updateDocument(req: UpdateRequest): Promise<unknown> {
   await syncOrderForInvoice(orgId, updated || existing, user.id)
 
   // An issued invoice edited to cash (or its total changed while cash) is paid; one edited
-  // away from cash gives back the payment that rule recorded. A credit note the same, its
-  // refund. Drafts are untouched.
+  // away from cash gives back the payment that rule recorded. A debit note the same, and a
+  // credit note its refund. Drafts are untouched.
   // ⚠ FR-23: where LGR prints the rule does not settle. That money goes through the payment
   // action, which prints, and an edit must not take it silently. An imported document never
   // prints, so the rule stays its own.
@@ -268,7 +268,7 @@ export async function updateDocument(req: UpdateRequest): Promise<unknown> {
     settled = settlement.action !== 'none'
     if (settled) updated = await r.invoices.findOne({ id, orgId })
   }
-  // Whatever that rule left alone: a debit note, a bill, a draft, a document paid by bank. A cash sale owes
+  // Whatever that rule left alone: a bill, a draft, a document paid by bank. A cash sale owes
   // nothing, and an invoice for one is the service's above.
   const owes = existing.type !== 'cash_sale' && !existing.cashSaleRef?.cashSaleId
   if (!settled && owes && updated && round2(updated.total) !== round2(existing.total)) {

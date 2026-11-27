@@ -1163,6 +1163,8 @@ causes. Counts only; the rows stayed with the person who ran it.
   before the refunds planned nothing in any month, and each dry run after a write planned nothing. **After it, 20
   compared documents differ on cash, against 23:** every month of the home is equal to the books, and the 20 are the
   other store's October (the 18 by a cent or two, and the 2 the books code bank). Revenue and VAT are as they were.
+- **A debit note too (the owner's word, the same day).** A debit note charged at the counter is paid as it is issued,
+  as an invoice is (`SETTLED_TYPES`). None was due in any org that day, so there was no backlog to run.
 
 ### R3: the accountant's override of a group's average, as built
 

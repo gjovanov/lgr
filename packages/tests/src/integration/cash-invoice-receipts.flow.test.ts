@@ -4733,14 +4733,15 @@ describe('§2.6 — who reads what: revenue counts the money once', () => {
     expect('unpaid' in summary).toBe(false)
   })
 
-  it('a debit note issued in cash in an org that prints nothing keeps its money in the digest', async () => {
+  it('a debit note issued in cash in an org that prints nothing is paid as it is issued, and its money is in the digest', async () => {
     const w = await tillWorld(app)
     const inv = await draftOf(w, { method: 'bank_transfer' })
     await send(w, inv.id)
     await allowSalesWithoutPrinter(w.oid)
     const note = await draftOf(w, { type: 'debit_note', extra: { relatedInvoiceId: inv.id, contactId: inv.contactId } })
     await send(w, note.id)
-    expect(await raw(note.id)).toMatchObject({ status: 'sent', amountPaid: 0, paymentMethod: 'cash' })
+    // Since 2026-11-27 an invoice's rule: it stayed `sent` with nothing paid, and only the header said cash.
+    expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24, amountDue: 0, paymentMethod: 'cash' })
     const date = localDayOf(new Date(), 'Europe/Sofia')
     await Invoice.updateMany({ orgId: w.oid }, { $set: { issueDate: new Date(`${date}T10:00:00Z`) } })
 

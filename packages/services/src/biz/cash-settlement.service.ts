@@ -17,7 +17,7 @@ import { enqueuePosting } from './postings/posting.service.js'
  * every client's open balance. A card sale followed in FR-22.19 (D-3): it cost a second dialog on
  * the list row, and the method picked a second time.
  *
- * `syncCashSettlement` brings ONE issued outgoing invoice or credit note in line with that rule.
+ * `syncCashSettlement` brings ONE issued outgoing invoice, debit note or credit note in line with that rule.
  * Every path that issues or edits one calls it: `/send`, `PUT /invoices/:id` and the import
  * conversion (`convertDraftInvoice`), which is how most invoices arrive.
  *  - Method cash or card → whatever is still outstanding becomes one payment by that method,
@@ -39,7 +39,13 @@ import { enqueuePosting } from './postings/posting.service.js'
  * `paid` once all of it has. Its journal entry is money out (`createPaymentJournalEntry`, FR-23
  * §2.5). Until then such a note stayed due where nothing prints: the customer had the money in
  * hand while aging took it off their balance, and the books' `501` showed a refund LGR never
- * recorded. A debit note is not this rule's.
+ * recorded.
+ *
+ * A debit note charged at the counter is paid as it is issued, as an invoice is (the owner's decision of
+ * 2026-11-27): it charges the client more, and in cash or by card that money changed hands as it was written.
+ * Its payment is money in, as an invoice's is (`createPaymentJournalEntry`), and where LGR prints it goes
+ * through the payment action, which prints, as an invoice's does (`printsAtCounter`). Until then such a note
+ * stayed due with nothing recorded. None did on production that day: there was no such note in any org.
  *
  * ⚠ FR-23: where LGR prints (`settings.cashRegister.requireConnectedDevice` not off) a printed
  * receipt and its payment are the settlement, because money taken at the counter goes through the
@@ -71,8 +77,8 @@ const AUDIT_FIELD: Readonly<Record<string, string>> = { [CASH_ON_ISSUE]: 'cashOn
 /** Issued states: the document has its number and stands as a claim on the client. */
 const ISSUED = ['sent', 'overdue', 'partially_paid', 'paid']
 
-/** The outgoing documents this rule settles: an invoice paid at the counter, and a credit note refunded there. */
-export const SETTLED_TYPES: ReadonlySet<string> = new Set(['invoice', 'credit_note'])
+/** The outgoing documents this rule settles: an invoice or a debit note paid at the counter, and a credit note refunded there. */
+export const SETTLED_TYPES: ReadonlySet<string> = new Set(['invoice', 'debit_note', 'credit_note'])
 /** Whether `doc` is a document this rule settles once it is issued. */
 export const settlesOnIssue = (doc: { direction?: string; type?: string } | null | undefined): boolean =>
   !!doc && doc.direction === 'outgoing' && SETTLED_TYPES.has(String(doc.type))

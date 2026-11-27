@@ -821,8 +821,9 @@ A movement is in the ledger one of two ways, never both (`services/biz/contact-l
   the note is `paid` with nothing due. The same three paths call it: `/send`, `PUT /invoices/:id` and the import
   conversion. An edit follows as for an invoice: a lower total shrinks the automatic refund, another method withdraws
   it (and voids its journal entry), and a refund a person recorded is never touched. Bank transfer and cash on
-  delivery stay due, a supplier's credit note and a debit note are not this rule's, and a draft is left alone.
-  `settlesOnIssue` says which documents the rule takes; the edit path asks it too.
+  delivery stay due, a supplier's credit note is not this rule's, and a draft is left alone. A debit note takes the
+  invoice's rule since the same day (below). `settlesOnIssue` says which documents the rule takes; the edit path asks
+  it too.
 - **Why.** Where nothing prints, such a note stayed `sent` with its whole total due, as cash invoices did before
   2026-10. The customer had their money back at the counter, yet aging took the note off what they owe and the
   contact's open balance added it as a positive (a reader FR-23 R2 named and left alone), and the books' `501` showed
@@ -845,8 +846,27 @@ A movement is in the ledger one of two ways, never both (`services/biz/contact-l
   the refund can then be recorded. Voiding it is the same: `/void` refuses a `paid` document, as it does a cash
   invoice paid on issue, so its method changes first. Until 2026-11-27 such a note stayed `sent` and was voided as it
   stood.
-- ⚠ **The backlog is `scripts/settle-cash-invoices.ts`, credit notes included** (`--type invoice|credit_note`, both by
-  default). A credit note with a storno tried is never selected, as an invoice with a receipt tried never is: its
-  refund is that storno's (`settlement-backlog.ts`).
+- ⚠ **The backlog is `scripts/settle-cash-invoices.ts`, credit notes included** (`--type invoice|debit_note|credit_note`,
+  all three by default). A credit note with a storno tried is never selected, as an invoice with a receipt tried never
+  is: its refund is that storno's (`settlement-backlog.ts`).
 - Tests: `integration/cash-settlement.flow` (issue, edit, import, backlog), `integration/cash-invoice-refunds.flow`
   (nothing prints: refunded at issue, its entry money out, the digest; an imported note where LGR prints).
+
+## A debit note charged at the counter is paid as it is issued (2026-11-27, FR-25 R3, #471)
+
+- **What.** `SETTLED_TYPES` (`services/biz/cash-settlement.service.ts`) takes the debit note with the invoice and the
+  credit note. An issued outgoing debit note whose method is cash or card is settled as an invoice is: what it charges
+  becomes one payment by that method, marked `cash_on_issue` / `card_on_issue` and dated its issue date, and the note
+  is `paid` with nothing due. The same paths call the rule, an edit follows as for an invoice, a payment a person
+  recorded is never touched, and bank transfer and cash on delivery stay due.
+- **Why.** The owner's decision of 2026-11-27, with the credit note's: a debit note charges the client more, and at the
+  counter that money changed hands as it was written. Until then it stayed `sent` with its whole total due. None was
+  due on production that day, in any org, so the backlog run had nothing to settle.
+- **How its money reads.** Its payment is money in, as an invoice's (`createPaymentJournalEntry`). The shadow ledger
+  books it on `501` (`sales.debit_note.cash` and `.card`). Where LGR prints, nothing changes: its payment goes through
+  the payment action, which prints a receipt naming the note (FR-23 §2.2).
+- ⚠ **A debit note paid as it was issued takes no second payment** (400: it is `paid`), and `/void` refuses it, as for
+  an invoice paid at the counter: to take the money another way, or to void it, change its method first.
+- Tests: `integration/cash-settlement.flow` (in cash and by card, bank and cash on delivery, a draft, an edit, a second
+  payment, the import conversion, the backlog), `integration/cash-invoice-receipts.flow` (nothing prints: paid at
+  issue, its money in the digest).
