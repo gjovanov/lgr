@@ -275,6 +275,66 @@ test('F4 and "Show all": three ticked articles become three lines with one stock
   await expect(entry(page).getByTestId('count-entry-note')).toHaveText('1 articles added; 1 were already on the count')
 })
 
+test('Details: the cursor reaches the first article added while the dialog is still leaving (#933)', async ({ page }) => {
+  // Found in the field test on master 1a3b7da5: the click on "Add N articles" focuses that button, and the button keeps
+  // the cursor while the dialog runs its leave transition. The pick read that as "the person moved on" and left the
+  // cursor on <body>. Here the leave finishes in 125 ms, before the pick looks (200 ms after the stock answer), so the
+  // test above never saw it: the dialog's leave is made to last 1.5 s, as it did in the field.
+  const fx = await fixture()
+  const session = await apiLogin()
+  const { warehouse } = await stockedWarehouse(session)
+
+  await loginForApp(page)
+  await page.goto('/inventory/inventory-counts/new')
+  await chooseWarehouse(page, warehouse.name)
+  await page.addStyleTag({
+    content: '.v-overlay__content.dialog-transition-leave-active { transition: transform 1500ms linear, opacity 1500ms linear !important }'
+      + ' .v-overlay__content.dialog-transition-leave-to { opacity: 0 !important }',
+  })
+
+  const dialog = page.getByTestId('product-picker')
+  const rows = dialog.locator('.picker-table tbody tr')
+  async function openDetails() {
+    await entryInput(page).click()
+    await entryInput(page).pressSequentially(`${PREFIX}-${fx.stamp}`, { delay: 20 })
+    await expect(page.getByTestId('product-show-all')).toContainText(`Show all ${COUNT} results`, { timeout: 10000 })
+    await page.keyboard.press('F4')
+    await expect(dialog).toBeVisible()
+    await expect(rows).toHaveCount(COUNT, { timeout: 10000 })
+  }
+
+  // A click on "Add 2 articles": the cursor is in the first one's Counted while the dialog is still on its way out.
+  await openDetails()
+  await rows.nth(6).click()
+  await rows.nth(7).click()
+  await page.getByTestId('product-picker-add').click()
+  await expect(qtyOf(page, fx.ids[6])).toBeFocused({ timeout: 1000 })
+  expect(await dialog.count(), 'the dialog is still leaving').toBe(1)
+  // And it stays there once the dialog, and the button that held the cursor, are gone.
+  await expect(dialog).toHaveCount(0, { timeout: 5000 })
+  await expect(qtyOf(page, fx.ids[6])).toBeFocused()
+  await expect(lineRows(page)).toHaveCount(2)
+
+  // Enter in Details' search adds the ticked articles: that field holds the cursor while the dialog leaves.
+  await openDetails()
+  await rows.nth(8).click()
+  await dialog.locator('[data-testid="filter-search"] input').click()
+  await page.keyboard.press('Enter')
+  await expect(qtyOf(page, fx.ids[8])).toBeFocused({ timeout: 2000 })
+  await expect(dialog).toHaveCount(0, { timeout: 5000 })
+  await expect(qtyOf(page, fx.ids[8])).toBeFocused()
+
+  // FR-28.27: a person who has gone on to the fresh entry field meanwhile keeps the cursor there.
+  await openDetails()
+  await rows.nth(9).click()
+  await page.getByTestId('product-picker-add').click()
+  await entryInput(page).focus()
+  await expect(lineRows(page)).toHaveCount(4)
+  await expect(dialog).toHaveCount(0, { timeout: 5000 })
+  await expect(entryInput(page)).toBeFocused()
+  await expect(qtyOf(page, fx.ids[9])).not.toBeFocused()
+})
+
 test('the edit page: a pick, "Load products" adds only what is missing and keeps what was typed, and Save sends the same payload', async ({ page }) => {
   const fx = await fixture()
   const session = await apiLogin()
