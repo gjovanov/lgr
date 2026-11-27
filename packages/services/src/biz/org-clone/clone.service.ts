@@ -36,6 +36,7 @@
 import { mongoose } from 'db/connection'
 import { Org, Role } from 'db/models'
 import { assertHomeIsHere } from 'db/home/home'
+import { withDerivedFields } from 'db/plugins/invoice-number-parts'
 import { logger } from '../../logger/logger.js'
 import { tenantCollections } from '../backup/backup-bundle.service.js'
 import { contentHash } from './canonical.js'
@@ -314,7 +315,8 @@ async function insertUnordered(coll: any, docs: any[]): Promise<InsertOutcome> {
 /** One batch of source documents of an ordinary model: insert what is missing, rewrite what drifted. */
 async function writeBatch(name: string, coll: any, docs: any[], ctx: Ctx, res: CollectionResult): Promise<void> {
   res.scanned += docs.length
-  const clones = docs.map(d => remapDoc(d, ctx.env))
+  // #929: what the target derives for itself (an invoice's running number), from the copy's own number.
+  const clones = docs.map(d => withDerivedFields(coll.collectionName, remapDoc(d, ctx.env)))
   assertTargetDocs(ctx, clones, name)
 
   const present = new Map<string, any>()

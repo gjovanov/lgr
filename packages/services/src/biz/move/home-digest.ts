@@ -15,6 +15,7 @@
 import type { mongo } from 'mongoose'
 import { createHash } from 'node:crypto'
 import { mongoose } from 'db/connection'
+import { withoutDerivedFields } from 'db/plugins/invoice-number-parts'
 import { homePart, isPlain } from '../replication/project.js'
 import { moveCollections, type Digests } from './move-bundle.js'
 
@@ -34,9 +35,13 @@ export function canonical(v: unknown): unknown {
   return v
 }
 
-/** One document as the digest reads it: its home parts, canonical. */
+/**
+ * One document as the digest reads it: its home parts, canonical. #929: without what each server derives for
+ * itself (`DERIVED_FIELDS`, an invoice's running number): a master older than the field holds none, and global's
+ * mirror derives it on apply, so comparing it would hold every move back of such a master.
+ */
 export function homeLine(entry: Parameters<typeof homePart>[1], doc: Record<string, unknown>): string {
-  return `${EJSON.stringify(canonical(homePart(doc, entry)) as any, { relaxed: false })}\n`
+  return `${EJSON.stringify(canonical(homePart(withoutDerivedFields(entry.collection, doc), entry)) as any, { relaxed: false })}\n`
 }
 
 /** Per collection, the count and sha256 of the org's documents as its home holds them. */

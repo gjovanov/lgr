@@ -41,6 +41,7 @@
 import type { mongo } from 'mongoose'
 import type { MetaEntry } from 'db/replication/generate'
 import { homeOf, type OrgHomeInfo } from 'db/home/home'
+import { withDerivedFields } from 'db/plugins/invoice-number-parts'
 import { logger } from '../../logger/logger.js'
 import { validateStored } from '../files/stored-path.js'
 import { DEAD_MAX, dueForResend, recordSetAside, resolveWritten, type SetAside } from './dead-letters.js'
@@ -186,7 +187,10 @@ function prepare(page: Page): Prepared[] {
     if (docOrg?._bsontype !== 'ObjectId' || String(docOrg) !== String(page.orgId)) throw new Refused('foreign', `${row.coll} ${String(doc._id)} is not the page's org`)
     const bad = pathProblem(row.coll, doc, page.orgId)
     if (bad) throw new Refused('foreign', bad)
-    out.push({ row, entry, doc })
+    // #929: what global derives for itself (an invoice's running number), always from the document's own number,
+    // never as sent: a master older than the field sends none, and one that was given it by a copy may hold it stale.
+    // The chain hash was checked on the bytes before this, and the move back's digests skip these fields.
+    out.push({ row, entry, doc: withDerivedFields(row.coll, doc) })
   }
   return out
 }

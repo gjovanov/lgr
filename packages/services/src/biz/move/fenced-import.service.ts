@@ -34,6 +34,7 @@ import { isQuoteType } from 'config/constants'
 import { mongoose } from 'db/connection'
 import { FencedExport, FencedImportItem, Invoice, StockMovement } from 'db/models'
 import { assertHomeIsHere } from 'db/home/home'
+import { withNumberParts } from 'db/plugins/invoice-number-parts'
 import { getRepos } from '../../context.js'
 import { logger } from '../../logger/logger.js'
 import { postInvoiceJournal, postPaymentJournal, postPosSessionJournal } from '../../events/handlers.js'
@@ -291,7 +292,9 @@ export async function importSale(ctx: Ctx, doc: Doc): Promise<Outcome> {
       }
     }
     try {
-      await Invoice.collection.insertOne(kept as any)
+      // #929: its running number from its number as kept here (a draft may have taken the next draft number),
+      // never as the exporting server stored it: that server may be older than the field.
+      await Invoice.collection.insertOne(withNumberParts(kept) as any)
     } catch (e: any) {
       // Before migration 0010 the key holds one document per number; or a pair already holds it.
       if (e?.code === 11000 && /invoiceNumber/.test(String(e?.message))) return skipped('number_taken', `lgrai.app gave ${number} to another document`, number)

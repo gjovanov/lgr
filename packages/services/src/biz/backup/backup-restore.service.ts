@@ -40,19 +40,13 @@ import { stat } from 'node:fs/promises'
 import { config, nodeRole } from 'config'
 import { mongoose } from 'db/connection'
 import { assertHomeIsHere } from 'db/home/home'
+import { withDerivedFields } from 'db/plugins/invoice-number-parts'
 import { lockLegalSeries, replaceRefusedHere } from '../home/series-lock.service.js'
 import { BackupRun, FiscalDevice, FiscalYear, Identity, Org, RestoreRun } from 'db/models'
 import { logger } from '../../logger/logger.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import {
-  PEOPLE_MODEL,
-  buildBundle,
-  bundleDir,
-  iterateBundleLines,
-  readBundlePlain,
-  tenantCollections,
-  bundleExclusion,
-  verifyBundle,
+  PEOPLE_MODEL, buildBundle, bundleDir, iterateBundleLines, readBundlePlain, tenantCollections, bundleExclusion, verifyBundle,
 } from './backup-bundle.service.js'
 import { BUNDLE_FORMAT, type BackupBundleManifest } from './backup-bundle.types.js'
 import { orgDocsDir, restoreFilesSidecar } from './backup-files.service.js'
@@ -615,12 +609,12 @@ async function insertDocs(
   let conflicts = 0
 
   for (let i = 0; i < docs.length; i += INSERT_BATCH) {
-    const batch = docs.slice(i, i + INSERT_BATCH).map(d => castForModel(modelName, d))
+    // #929: what this server derives (an invoice's running number) from the row, never as the bundle had it.
+    const batch = docs.slice(i, i + INSERT_BATCH).map(d => withDerivedFields(model.collection.collectionName, castForModel(modelName, d)))
     try {
-      // `rawResult: false` + `ordered: false`: one document refused by a unique index must not
-      // stop the other 499. Bypassing validation is deliberate — these documents were valid
-      // when they were written, and a schema that has tightened since must not silently drop
-      // history on the way back in. The bundle's own checksums are the integrity story here.
+      // `rawResult: false` + `ordered: false`: one document refused by a unique index must not stop the other 499.
+      // Bypassing validation is deliberate: these documents were valid when written, and a schema that has tightened
+      // since must not silently drop history on the way back in. The bundle's own checksums are the integrity story.
       const res: any = await model.collection.insertMany(batch, { ordered: false })
       inserted += res?.insertedCount ?? batch.length
     } catch (e: any) {

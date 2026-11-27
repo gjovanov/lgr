@@ -45,6 +45,11 @@ const SAYS_SO: Record<string, string> = {
   'services/src/biz/supto-export.service.ts findMany invoiceQuery': 'names cash_sale where it is built',
   'services/src/biz/yearless-numbers.ts find { orgId, invoiceNumber: { $in: single.slice(i, i + 500).map(r => r.to) } }': 'a number taken is taken, whoever took it',
   'services/src/biz/supto-export.service.ts distinct \'relatedInvoiceId\'': 'names the type in its second argument',
+  // #929: numbering, which counts no money: a number taken is taken, whatever the document's type.
+  'services/src/biz/invoice-numbering.service.ts distinct \'numberHead\'': 'the heads of the org\'s numbers, for the next number: a number taken is taken, whoever took it',
+  'migrations/src/migrations/0024-invoice-number-parts.ts distinct \'orgId\'': 'the orgs to backfill: every invoice gets its running number, whatever its type',
+  'migrations/src/migrations/0024-invoice-number-parts.ts find { ...orgFilter, orgId }': 'the same: every invoice of the org, counted, never summed',
+  'migrations/src/migrations/0024-invoice-number-parts.ts countDocuments { ...orgFilter, numberHead: null }': 'the invoices still without a running number, counted for the log',
 }
 
 const READ = /\b(?:Invoice|invoices)\.(find|aggregate|countDocuments|distinct|findAll|findMany|count)\(/g

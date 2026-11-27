@@ -14,6 +14,7 @@ import { runMigrations, COLLECTION } from 'migrations/runner'
 import { cashRegisterCopy } from 'migrations/migrations/0008-cash-register-copy'
 import { cashRegisterFreeze } from 'migrations/migrations/0009-cash-register-freeze'
 import { FrozenCollectionError } from 'db/plugins/frozen.plugin'
+import { withoutDerivedFields } from 'db/plugins/invoice-number-parts'
 import {
   CashRegisterCopyError, cashRegisterParity, cashRegisterPreflight, copyCashRegisterOrg,
 } from 'services/biz/cash-register/copy-org'
@@ -338,8 +339,9 @@ describe('R3 — the freeze (FR-21.25, FR-21.26)', () => {
     expect(copy?.invoiceNumber).toBe('TXN-2026-0000500')
     expect(copy?.register?.origin).toBe('pos')
     expect(await cashRegisterParity(db() as any, String(w.orgId))).toEqual([])
-    // A second run changes nothing.
-    const snap = async () => JSON.stringify(await Invoice.find({}).sort({ _id: 1 }).lean())
+    // A second run changes nothing. #929: the runner below also runs 0024, which gives the fixtures written raw
+    // their running number (`numberHead` / `numberSeq`, derived from the number); this test is about 0008/0009.
+    const snap = async () => JSON.stringify((await Invoice.find({}).sort({ _id: 1 }).lean()).map(d => withoutDerivedFields('invoices', d)))
     const once = await snap()
     await freeze()
     expect(await snap()).toBe(once)

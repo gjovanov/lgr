@@ -34,6 +34,7 @@ import { pipeline } from 'node:stream/promises'
 import zlib from 'node:zlib'
 import type { mongo } from 'mongoose'
 import { mongoose } from 'db/connection'
+import { DERIVED_FIELDS, withDerivedFields } from 'db/plugins/invoice-number-parts'
 import { REPLICATION_META } from 'db/replication/meta.generated'
 import type { MetaEntry } from 'db/replication/generate'
 import { splitLines } from '../backup/backup-files.service.js'
@@ -91,9 +92,14 @@ function without(doc: Doc, paths: readonly string[]): Doc {
   return out
 }
 
-/** A document as a move carries it. */
+/**
+ * A document as a move carries it. #929: never with what each server derives for itself (`DERIVED_FIELDS`, an
+ * invoice's running number). The importer derives it from the document (`importMoveBundle`), and the digests both
+ * sides compute leave it out, so a copy compares equal whichever version holds it: an older master, which does not
+ * know the field, never keeps one that would go stale under its own writes.
+ */
 export function moveProjection(entry: MetaEntry, doc: Doc): Doc {
-  const drop = [...(NEVER[entry.collection] ?? []), ...(entry.class === 'S' ? entry.node ?? [] : [])]
+  const drop = [...(NEVER[entry.collection] ?? []), ...(DERIVED_FIELDS[entry.collection] ?? []), ...(entry.class === 'S' ? entry.node ?? [] : [])]
   return drop.length ? without(doc, drop) : doc
 }
 
@@ -350,7 +356,8 @@ export async function importMoveBundle(db: Db, orgId: ObjectId, path: string, op
       await flush()
       batchColl = coll
     }
-    batch.push(doc)
+    // #929: the bundle carries no derived field; this server derives its own.
+    batch.push(withDerivedFields(coll, doc))
   }
   await flush()
 

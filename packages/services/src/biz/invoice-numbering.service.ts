@@ -9,6 +9,7 @@
  */
 import { Invoice } from 'db/models'
 import { mongoose } from 'db/connection'
+import { numberPartsOf } from 'db/plugins/invoice-number-parts'
 import {
   CONTINUOUS_PAD, getNextNumber, getNextContinuousNumber, getCurrentNumber, highestCounter, isContinuousSeries,
   ensureSequenceAtLeast, getDisplayPrefix, isLegalSeries, seriesFrozenSince, SeriesFrozenError, type SequenceOptions,
@@ -114,11 +115,22 @@ export async function seriesPrefixes(orgId: string, key: string): Promise<string
 /**
  * How a series' numbers read. A yearly series: `<prefix>-<year>-<number>`, of ONE year. A
  * continuous one: `<prefix>-<number>`, and every yearly number issued before it became continuous,
- * of ANY year, because its running number goes on above all of them.
+ * of ANY year, because its running number goes on above all of them. Since #929 only the fallback
+ * for documents without stored parts matches it on the numbers themselves (`unbackfilledMax`).
  */
 function seriesPattern(prefixes: string[], year: number | null): RegExp {
   const head = `^(?:${prefixes.map(escapeRe).join('|')})-`
   return new RegExp(year === null ? `${head}(?:\\d{4}-)?(\\d+)$` : `${head}${year}-(\\d+)$`)
+}
+
+/**
+ * #929: the same reading on a number's HEAD, what stands before its last dash (`numberPartsOf`). A number
+ * matches `seriesPattern` exactly when the piece after its last dash is digits and its head passes this.
+ * Yearly: `<prefix>-<year>`. Continuous: `<prefix>` or `<prefix>-<4 digits>`.
+ */
+function seriesHeadPattern(prefixes: string[], year: number | null): RegExp {
+  const head = `^(?:${prefixes.map(escapeRe).join('|')})`
+  return new RegExp(year === null ? `${head}(?:-\\d{4})?$` : `${head}-${year}$`)
 }
 
 /**
@@ -128,8 +140,8 @@ function seriesPattern(prefixes: string[], year: number | null): RegExp {
 export async function continuousSuffixOf(orgId: string, key: string, number: unknown): Promise<number | null> {
   const prefixes = await seriesPrefixes(orgId, key)
   if (!prefixes.length) return null
-  const m = seriesPattern(prefixes, null).exec(String(number ?? ''))
-  return m ? Number(m[1]) : null
+  const parts = numberPartsOf(String(number ?? ''))
+  return parts.numberSeq !== null && seriesHeadPattern(prefixes, null).test(parts.numberHead) ? parts.numberSeq : null
 }
 
 /** A continuous series' number: its prefix and ten digits, no year. */
@@ -138,28 +150,69 @@ export function continuousNumber(display: string, n: number): string {
 }
 
 /**
- * Scan existing invoices that share the given sequence key and return the highest trailing
- * numeric suffix already in use for `year`. Used to bootstrap `lastNumber` when legacy rows
- * (seeds, pre-refactor per-prefix counters) have numbers above the current sequence value.
- *
- * `everyYear`: the series is continuous. Its numbers carry no year, and the yearly ones issued
- * before it became continuous count whatever their year.
+ * The highest running number stored under any of `heads`: one index key per head
+ * (`{orgId, numberHead, numberSeq: -1}`), however many documents the org has.
  */
-export async function currentMaxSuffix(orgId: string, key: string, year: number, opts: { everyYear?: boolean } = {}): Promise<number> {
-  const prefixes = await seriesPrefixes(orgId, key)
-  if (!prefixes.length) return 0
+async function storedMax(orgId: mongoose.Types.ObjectId, heads: string[]): Promise<number> {
+  const tops = await Promise.all(heads.map(numberHead =>
+    Invoice.findOne({ orgId, numberHead }, { _id: 0, numberSeq: 1 }).sort({ numberSeq: -1 }).lean().exec()))
+  return tops.reduce((max, top) => Math.max(max, typeof top?.numberSeq === 'number' ? top.numberSeq : 0), 0)
+}
 
-  // Counted where the numbers are: a continuous series matches every document the org ever issued or
-  // imported, and this runs at each allocation and each time a form asks what the next number would be.
-  // The pattern ends in `-<digits>`, so the running number is the piece after the last dash. An aggregate
-  // casts nothing: the org's id is made one here.
-  const re = seriesPattern(prefixes, opts.everyYear ? null : year)
+/**
+ * The heads of a continuous series that this org's documents carry: a distinct scan of the same index, one
+ * entry per head the org has (its series, their years, its drafts'), never one per document.
+ */
+async function continuousHeads(orgId: mongoose.Types.ObjectId, prefixes: string[]): Promise<string[]> {
+  const re = seriesHeadPattern(prefixes, null)
+  const heads: unknown[] = await Invoice.distinct('numberHead', { orgId }).exec()
+  return heads.filter((h): h is string => typeof h === 'string' && re.test(h))
+}
+
+/**
+ * #929: the old scan of the numbers, for an org some of whose documents carry no stored parts. Those are the
+ * documents written before the parts existed, until migration `0024-invoice-number-parts` gives them theirs
+ * (production runs with `MIGRATIONS_AUTO=false`, so the code is live before the backfill), and any document a
+ * writer stored raw without them. One read on the index tells whether the org has any (`numberHead: null`
+ * matches a missing head, and every written head is a string): with none the scan does not run.
+ *
+ * With some, it is the scan exactly as it was, over every number of the org, so the answer is the scan's whatever
+ * the stored parts say. ⚠ Not narrowed to the documents without parts: `numberHead: null` is not in the number's
+ * index, so the narrowed scan FETCHED each such document, where this one reads the unique number index alone
+ * (`docsExamined: 0`, #785). Until the backfill an org pays what it paid before, and nothing more.
+ */
+async function unbackfilledMax(orgId: mongoose.Types.ObjectId, prefixes: string[], year: number | null): Promise<number> {
+  if (!(await Invoice.exists({ orgId, numberHead: null }))) return 0
+  // The pattern ends in `-<digits>`, so the running number is the piece after the last dash. An aggregate casts nothing.
   const rows: Array<{ max?: number }> = await Invoice.aggregate([
-    { $match: { orgId: new mongoose.Types.ObjectId(String(orgId)), invoiceNumber: { $regex: re } } },
+    { $match: { orgId, invoiceNumber: { $regex: seriesPattern(prefixes, year) } } },
     { $project: { _id: 0, n: { $convert: { input: { $arrayElemAt: [{ $split: ['$invoiceNumber', '-'] }, -1] }, to: 'double', onError: 0, onNull: 0 } } } },
     { $group: { _id: null, max: { $max: '$n' } } },
   ]).exec()
   return Number(rows[0]?.max ?? 0)
+}
+
+/**
+ * The highest running number already in use in the series `key` for `year`. Used to bootstrap `lastNumber`
+ * when legacy rows (seeds, pre-refactor per-prefix counters, imports) have numbers above the counter.
+ *
+ * `everyYear`: the series is continuous. Its numbers carry no year, and the yearly ones issued
+ * before it became continuous count whatever their year.
+ *
+ * #929: read from the stored running numbers (`numberHead` / `numberSeq`, `db/plugins/invoice-number-parts`),
+ * a key or two per head. It used to scan every number of the org at each allocation and each time a form asked
+ * for the next number: its keys grew with the org, and an issued sales document was re-planned every time,
+ * about 18 µs per invoice of the org (#785). Documents with no stored parts yet are still read by their
+ * numbers (`unbackfilledMax`), so the answer is the scan's before, during and after the backfill.
+ */
+export async function currentMaxSuffix(orgId: string, key: string, year: number, opts: { everyYear?: boolean } = {}): Promise<number> {
+  const prefixes = await seriesPrefixes(orgId, key)
+  if (!prefixes.length) return 0
+  const oid = new mongoose.Types.ObjectId(String(orgId))
+  const ofYear = opts.everyYear ? null : year
+  const heads = ofYear === null ? await continuousHeads(oid, prefixes) : [...new Set(prefixes.map(p => `${p}-${ofYear}`))]
+  const [stored, legacy] = await Promise.all([storedMax(oid, heads), unbackfilledMax(oid, prefixes, ofYear)])
+  return Math.max(stored, legacy)
 }
 
 /**

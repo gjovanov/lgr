@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { invoiceNumberPartsPlugin } from '../plugins/invoice-number-parts.js'
 import { replicate } from '../replication/declare.js'
 
 export interface IPriceStep {
@@ -225,6 +226,10 @@ export interface IInvoice extends Document {
   _id: Types.ObjectId
   orgId: Types.ObjectId
   invoiceNumber: string
+  /** #929: what stands before the number's last dash, `''` when it has no running number (`plugins/invoice-number-parts`). */
+  numberHead?: string
+  /** #929: the number's running number, the digits after its last dash; null when it has none. */
+  numberSeq?: number | null
   type: string
   direction: string
   status: string
@@ -417,6 +422,9 @@ const addressSchema = new Schema(
 const invoiceSchema = new Schema<IInvoice>(
   {
     invoiceNumber: { type: String, required: true },
+    // #929: derived from `invoiceNumber` on every write (`plugins/invoice-number-parts`), never set by hand.
+    numberHead: String,
+    numberSeq: Number,
     // `cash_storno` (FR-21, D-2): a storno of a cash sale, stored positive — the sign is the type.
     // `payment_receipt` (FR-23): the fiscal receipt of a payment on an invoice or a debit note. Not a
     // sale: its invoice is. ⚠ A reader that names no type counts it beside its invoice, unless it says
@@ -720,6 +728,9 @@ const invoiceSchema = new Schema<IInvoice>(
 export const INVOICE_NUMBER_KEY = 'invoice_number_unique'
 
 invoiceSchema.plugin(tenantPlugin)
+invoiceSchema.plugin(invoiceNumberPartsPlugin)
+/** #929: the index the next number of a series is read through, by name: migration 0024 builds the same one. */
+export const INVOICE_NUMBER_SEQ_KEY = 'invoice_number_seq'
 /**
  * One number, one document, but for a number issued twice (FR-20.51, AC 51): the pair's second carries
  * `numberClash.withId`, so it fits beside the first, and a third never does. Every ordinary invoice
@@ -773,6 +784,10 @@ invoiceSchema.index({ orgId: 1, 'register.sessionId': 1 }, { partialFilterExpres
 invoiceSchema.index({ orgId: 1, 'register.paidInvoiceId': 1 }, { partialFilterExpression: { 'register.paidInvoiceId': { $exists: true } } })
 // FR-23 R2: the stornos of a credit note, on every load of one.
 invoiceSchema.index({ orgId: 1, 'register.refundOf': 1 }, { partialFilterExpression: { 'register.refundOf': { $exists: true } } })
+
+// #929: the highest running number of a head (`currentMaxSuffix`), one key per head; the org's heads by a distinct
+// scan; and the documents not yet given their parts (`numberHead: null`), which the fallback reads.
+invoiceSchema.index({ orgId: 1, numberHead: 1, numberSeq: -1 }, { name: INVOICE_NUMBER_SEQ_KEY })
 
 replicate(invoiceSchema, { class: 'R' })
 

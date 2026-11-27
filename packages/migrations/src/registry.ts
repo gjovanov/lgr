@@ -23,6 +23,7 @@ import { legacyAccessArchiveDrop } from './migrations/0020-legacy-access-archive
 import { relayReceiptsKept60Days } from './migrations/0021-relay-receipts-kept-60-days.js'
 import { dropUnusedIndexesFr305 } from './migrations/0022-drop-unused-indexes-fr30-5.js'
 import { importedLineTotalsGross } from './migrations/0023-imported-line-totals-gross.js'
+import { invoiceNumberParts } from './migrations/0024-invoice-number-parts.js'
 import FINGERPRINTS from './fingerprints.json' with { type: 'json' }
 
 /**
@@ -59,6 +60,7 @@ export const RELEASED: Migration[] = [
   relayReceiptsKept60Days,
   dropUnusedIndexesFr305,
   importedLineTotalsGross,
+  invoiceNumberParts,
 ]
 
 /** {@link RELEASED}, each carrying its file's fingerprint, which the runner checksums. */
