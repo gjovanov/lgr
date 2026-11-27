@@ -133,6 +133,7 @@ Object.assign(globalEnv, {
   DIGEST_CHECK_INTERVAL_MS: '0',
   BACKUP_CHECK_INTERVAL_MS: '0',
   RETENTION_CHECK_INTERVAL_MS: '0',
+  SHADOW_SALES_CHECK_INTERVAL_MS: '0',
   DESKTOP_REAPER_INTERVAL_MS: '0',
   NODE_REAPER_INTERVAL_MS: '0',
   // FR-20.73 (P3-4d): where lgrai.app's other pods reach this one.

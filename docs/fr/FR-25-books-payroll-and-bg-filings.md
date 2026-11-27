@@ -1194,7 +1194,8 @@ Built: the model `GroupCostOverride`, the replay's restatement, the API and a pa
   3's restart). It moves no value of its own: the books carry the write-off or revaluation it stands for. A group the
   books never held has a cost from the override's day. An override before the window's first opening is none: the
   opening restates the year.
-- **When it takes effect.** At the next `post-shadow-sales.ts` run that covers its day. The posting hash carries the
+- **When it takes effect.** At the next run that covers its day: since 2026-11-27 the next night, whose run covers
+  every day of the shadow (below), or a `post-shadow-sales.ts` run by hand before it. The posting hash carries the
   cost, so that run reverses the postings it changes on their own days and posts them again; nothing is written over,
   and a closed period is left alone. A run over later days only does not reach the sales before them. The run's "Cost
   basis" line counts the overrides it applied.
@@ -1208,6 +1209,40 @@ Built: the model `GroupCostOverride`, the replay's restatement, the API and a pa
 - **The page.** A list, and a dialog with the group (the active goods groups), the day, the unit cost and the reason,
   and beside them the replayed average at the start of that day with the change in percent. It says that an override
   takes effect at the next run over its day.
+
+### R3: the nightly run, as built (2026-11-27)
+
+**The owner's decision (2026-11-27):** the shadow is posted on its own each night after the import, no longer only by
+hand. Until then it stood still between hand runs: on 11-27 it was posted through 11-24, so the comparison said nothing
+of the days after, and an override took effect only at the next hand run over its day.
+
+Built: `services/biz/accounting-books/shadow-nightly.service.ts`, the scheduler `shadow-sales` in `api/src/unified.ts`,
+`hold` and `live` on `postShadowSales`, and `scripts/post-shadow-sales.ts --org <slug> --nightly [--execute]`.
+
+- **Which orgs.** Every org homed here (FR-20.85) whose shadow a person has started, i.e. that holds a shadow posting.
+  It never starts one: that takes the rules seeded, the products mapped and a dry run read first (slice 3). A store
+  whose books home is homed elsewhere is refused, and an org without an owner too (a written entry names its creator:
+  the night's name the org's owner, as the hand run's on the server do).
+- **What a night covers.** From the first day of the month of the org's first shadow posting to yesterday, business days
+  in Sofia. That is the whole shadow, so a night writes what changed anywhere in it: the new documents, an edit or a
+  void since, a cost the books changed (a purchase booked late), an override. A closed period is left alone, as by
+  hand, and a missed night is caught up by the next.
+- **When.** The first tick in the hour `SHADOW_SALES_HOUR` (default 4) in Sofia, once a day: after the evening's import
+  and the backups, and outside the books nightly's daytime runs, whose import the cost reads. A tick comes every
+  `SHADOW_SALES_CHECK_INTERVAL_MS` (default 10 minutes; 0 turns it off, as the tests do). `where: 'one'`, under the
+  scheduler's lease, and no pass at start. A second run the same day writes nothing: the posting is idempotent.
+- **The bound.** A night that would reverse (repost or reverse) more than 50 live postings and more than a fifth of the
+  live ones writes nothing at all: that is a rules change, a books import gone wrong or a fault, not a night's new
+  documents and few edits. A person reads the dry run and posts by hand with `--from`/`--to`, which has no bound, as
+  the card rule's reposts were. The shadow is in no reading of the books, so the bound protects no balance: it stops a
+  fault rewriting the comparison silently, night after night.
+- **Where it is told.** A night that wrote, held or was refused leaves an audit row in the org under the system's name
+  `shadow-sales` (`actor`), with its counts and window: `create`, `hold`, `refused`. A night with nothing to write
+  leaves none. A held, refused or failed night is also logged and fails that tick (the scheduler's `failures`). A
+  refusal is the hand run's: `no_rules` after a rule is added to the seed, every night until
+  `seed-posting-rules.ts` adds it.
+- **By hand.** `--nightly` is the same night: its window and its bound. A dry run says whether the bound would hold it;
+  with `--execute` a held night writes nothing and the script exits 3.
 
 ### R4, slice 1: the pairing count, as built
 
