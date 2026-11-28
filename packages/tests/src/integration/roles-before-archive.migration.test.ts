@@ -5,7 +5,7 @@ import { captureRejection } from '../helpers/capture-rejection'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { Identity, Role, User } from 'db/models'
 import { DEFAULT_ROLE_PERMISSIONS, type Role as RoleKey } from 'config/constants'
-import { compileLegacy, grantOfRole, legacyClaimsOf, sameGrant } from 'config/access'
+import { ROLE_TEMPLATES, compileLegacy, grantOfRole, legacyClaimsOf, sameGrant } from 'config/access'
 import { login, register } from 'services/biz/auth.service'
 import { MIGRATIONS } from 'migrations/registry'
 import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
@@ -17,9 +17,11 @@ import { rolesBeforeTheArchive } from 'migrations/migrations/0016-roles-before-t
  * legacy access of everyone, in that one start. The gate's master update lanes signed in to `no_role` after it.
  *
  * Over the shapes such a master holds: an org founded on it (no roles at all), people added to an org 0015 gave roles,
- * a document with legacy permissions and no `role` (read as the schema's default, as 0.1.12 served it), invitations
+ * people whose legacy role 0.1.12's Users screen changed since (their `roleId` still 0015's), an org on `roles`, a
+ * document with legacy permissions and no `role` (read as the schema's default, as 0.1.12 served it), invitations
  * naming a legacy role, a person left without a role on purpose, an org out of the node's scope, and lgrai.app after
- * 0020. Each person's role is the one 0015 gives the same person, and grants what their token did.
+ * 0020. Each person's role is the one 0015 gives the same person, and grants what their token did. After the whole
+ * update the data is what 0.1.12 serves by roles if the update goes back (#980).
  *
  * NOTE: no `.rejects` / `.resolves` (Bun-on-Windows deadlock, see Known Issues).
  */
@@ -89,8 +91,19 @@ async function roleOf(userId: unknown) {
   return u?.roleId ? raw('roles', { _id: u.roleId }) : null
 }
 
-/** A role as it decides access: everything but the legacy projection 0015 also wrote, which nothing reads. */
-const shape = (r: any) => r && ({ name: r.name, isBuiltin: !!r.isBuiltin, templateKey: r.templateKey ?? null, all: !!r.all, caps: [...(r.caps ?? [])].sort() })
+/** A role as it decides access, with the legacy projection 0015 writes, which 0.1.12 reads after a go-back. */
+const shape = (r: any) => r && ({
+  name: r.name, isBuiltin: !!r.isBuiltin, templateKey: r.templateKey ?? null, all: !!r.all, caps: [...(r.caps ?? [])].sort(),
+  legacy: r.legacy ? { role: r.legacy.role, permissions: [...r.legacy.permissions].sort(), areas: r.legacy.areas ?? null } : null,
+})
+
+/** What 0.1.12's Users screen writes on a change of role: the legacy role, its defaults, its system set. Never `roleId`. */
+async function changedOn0112(orgId: unknown, userId: unknown, role: RoleKey, set: string) {
+  const s = await db().collection('permissionsets').findOne({ orgId, name: set })
+  await User.collection.updateOne({ _id: userId as any }, { $set: { role, permissions: [...DEFAULT_ROLE_PERMISSIONS[role]], permissionSetIds: [s!._id] } })
+}
+
+const accessModel = async (orgId: unknown) => (await raw('orgs', { _id: orgId }))?.settings?.access?.model
 
 /** What the person's token granted on 0.1.12: their legacy fields, read as `tokenize()` read them (0015's oracle). */
 async function legacyGrantOf(userId: unknown) {
@@ -154,6 +167,53 @@ describe('migration 0016-roles-before-the-archive', () => {
     expect(String((await raw('users', { _id: people.manager._id })).roleId)).toBe(kept)
   })
 
+  it('where the legacy model decided, a role changed on 0.1.12 since 0015 follows the legacy fields; one granting the same stays', async () => {
+    const { org, people } = await legacyOrg('before-archive-stale')
+    const roleIdOf = async (key: string) => String((await raw('users', { _id: people[key]._id })).roleId)
+    const before = { manager: await roleIdOf('manager'), twoSets: await roleIdOf('twoSets'), seller: await roleIdOf('seller') }
+    const administrator = await raw('roles', { orgId: org._id, isBuiltin: true, templateKey: 'admin' })
+    expect(await roleIdOf('admin')).toBe(String(administrator._id))
+    // Since the first start, on 0.1.12's Users screen: one person promoted, one administrator demoted by another.
+    await changedOn0112(org._id, people.member._id, 'manager', 'Manager')
+    await changedOn0112(org._id, people.admin._id, 'member', 'Member (Read Only)')
+    // A role of the org's own that grants exactly what this person's access does (0.1.12's `assignRole`, projected).
+    const ownRole = await raw('roles', { _id: (await raw('users', { _id: people.extras._id })).roleId })
+    const own = new Types.ObjectId()
+    await db().collection('roles').insertOne({ _id: own, orgId: org._id, name: 'Back office', isBuiltin: false, edited: false, all: false, caps: ownRole.caps, version: 1 })
+    await User.collection.updateOne({ _id: people.extras._id }, { $set: { roleId: own } })
+
+    const preview = await rolesBeforeTheArchive.preview!(scoped(org._id))
+    expect(preview[0]).toContain('2 to move')
+    expect(preview[0]).toEndWith('the org to roles')
+    expect(preview.filter(l => l.includes('  admin-before-archive-stale: from Administrator to Member (Read Only)'))).toHaveLength(1)
+    await rolesBeforeTheArchive.up(scoped(org._id))
+
+    const builtin = async (key: string) => String((await raw('roles', { orgId: org._id, isBuiltin: true, templateKey: key }))._id)
+    expect(await roleIdOf('member')).toBe(await builtin('manager'))
+    // The demoted administrator is no Administrator after the update: the role their legacy access gives.
+    expect(await roleIdOf('admin')).toBe(await builtin('member'))
+    expect(await roleIdOf('extras')).toBe(String(own))
+    expect({ manager: await roleIdOf('manager'), twoSets: await roleIdOf('twoSets'), seller: await roleIdOf('seller') }).toEqual(before)
+    for (const key of Object.keys(people)) {
+      expect({ key, same: sameGrant(grantOfRole(await roleOf(people[key]._id)), await legacyGrantOf(people[key]._id)) }).toEqual({ key, same: true })
+    }
+    expect(await accessModel(org._id)).toBe('roles')
+  })
+
+  it('where roles decided, a person keeps their role whatever their legacy fields say; one without a role gets one', async () => {
+    const { org, people } = await legacyOrg('before-archive-on-roles')
+    await db().collection('orgs').updateOne({ _id: org._id }, { $set: { 'settings.access.model': 'roles' } })
+    const administrator = String((await raw('roles', { orgId: org._id, isBuiltin: true, templateKey: 'admin' }))._id)
+    await changedOn0112(org._id, people.admin._id, 'member', 'Member (Read Only)')
+    const added = await madeOn0112(org._id, { email: 'added@before-archive.test', username: 'added', role: 'seller' })
+
+    await rolesBeforeTheArchive.up(scoped(org._id))
+
+    expect(String((await raw('users', { _id: people.admin._id })).roleId)).toBe(administrator)
+    expect(String((await roleOf(added._id))._id)).toBe(String((await roleOf(people.sellerNoSet._id))._id))
+    expect(await accessModel(org._id)).toBe('roles')
+  })
+
   it('leaves alone a person without a role and without legacy fields, an org out of scope, and lgrai.app after 0020', async () => {
     const here = await createTestOrg({ slug: 'before-archive-here' } as any)
     const away = await createTestOrg({ slug: 'before-archive-away' } as any)
@@ -184,6 +244,8 @@ describe('migration 0016-roles-before-the-archive', () => {
     expect((await raw('users', { _id: cloudNone._id })).roleId).toBeUndefined()
     expect((await raw('users', { _id: cloudPerson._id })).roleId).toBeDefined()
     expect(JSON.stringify(await db().collection('roles').find({ orgId: cloud._id }).sort({ _id: 1 }).toArray())).toBe(cloudBefore)
+    // Only the org whose access the legacy model decided goes to roles.
+    expect([await accessModel(here._id), await accessModel(away._id), await accessModel(cloud._id)]).toEqual(['roles', undefined, undefined])
   })
 
   it('an invitation naming a legacy role gets that built-in role by id; one with an id keeps it; an unknown key is left', async () => {
@@ -225,6 +287,19 @@ describe('migration 0016-roles-before-the-archive', () => {
     await rolesBeforeTheArchive.up(scoped())
     expect(await snapshot()).toBe(once)
     expect(await rolesBeforeTheArchive.preview!(scoped())).toEqual(['nothing to change'])
+  })
+
+  /**
+   * The difference rule (0015's, kept here) leaves a person without a role when the role their access gives would not
+   * grant what their token did. For a built-in role that happens only when its template drifts from its legacy claims,
+   * and then to everyone on that template's defaults: on a master updating from 0.1.12 they would sign in to `no_role`.
+   * A template change that fails this needs its own answer for that path first (#979).
+   */
+  it('every built-in template grants exactly what its legacy claims compile to', () => {
+    for (const t of ROLE_TEMPLATES) {
+      const grant = grantOfRole({ isBuiltin: true, edited: false, templateKey: t.key, all: t.key === 'admin' })
+      expect({ key: t.key, same: sameGrant(grant, compileLegacy(t.legacy)) }).toEqual({ key: t.key, same: true })
+    }
   })
 })
 
@@ -269,5 +344,31 @@ describe('the update from 0.1.12: every migration after 0015, as a master runs t
     const stored = await raw('users', { _id: after.user._id })
     expect({ role: stored.role, permissions: stored.permissions, archive: stored.legacyArchive }).toEqual({ role: undefined, permissions: undefined, archive: undefined })
     expect(String(stored.roleId)).toBe(String(administrator._id))
+  }, 60_000)
+
+  it('an administrator demoted on 0.1.12 signs in on the role their legacy access gives, and 0.1.12 could serve the org by its roles', async () => {
+    const { org, user: founder } = await registeredOn0112('before-archive-demoted')
+    // The org as it was at the master's first start: 0015 gave everyone a role (the factory runs it for the org).
+    const deputy = await createTestUser(org._id, { email: 'deputy@before-archive.test', username: 'deputy', role: 'admin' } as any)
+    const administrator = await raw('roles', { orgId: org._id, isBuiltin: true, templateKey: 'admin' })
+    expect(String((await raw('users', { _id: deputy._id })).roleId)).toBe(String(administrator._id))
+    // Demoted since, by the founder, on 0.1.12's Users screen: the legacy fields change, the role id does not.
+    await seedLegacySets(org._id)
+    await changedOn0112(org._id, deputy._id, 'member', 'Member (Read Only)')
+
+    for (const m of tail) await m.up(scoped(org._id))
+
+    const member = await raw('roles', { orgId: org._id, isBuiltin: true, templateKey: 'member' })
+    const session = await login({ username: 'deputy', password: 'test123', orgSlug: 'before-archive-demoted' })
+    expect(String((session.user as any).rid)).toBe(String(member._id))
+    expect(String((await raw('users', { _id: founder._id })).roleId)).toBe(String(administrator._id))
+    // What 0.1.12 serves an org by roles from, after a go-back (#980; `accessModelOf`, `liveRoleOf`, `tokenize` at
+    // server-v0.1.12): the org on `roles`, and on each role its people hold the legacy projection of its role key.
+    expect(await accessModel(org._id)).toBe('roles')
+    for (const u of await db().collection('users').find({ orgId: org._id }).toArray()) {
+      const role = await raw('roles', { _id: u.roleId })
+      expect({ user: u.username, legacy: typeof role?.legacy?.role }).toEqual({ user: u.username, legacy: 'string' })
+    }
+    expect([(await roleOf(founder._id)).legacy.role, (await roleOf(deputy._id)).legacy.role]).toEqual(['admin', 'member'])
   }, 60_000)
 })
