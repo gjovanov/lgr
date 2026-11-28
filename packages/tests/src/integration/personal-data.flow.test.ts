@@ -161,7 +161,9 @@ describe('reading a value', () => {
     await Bun.sleep(100) // the update's audit row is fire-and-forget
     const rows: any[] = await AuditLog.find({ entityName: employee.employeeNumber }).lean()
     expect(rows.length).toBeGreaterThan(0)
-    const text = JSON.stringify(rows)
+    // The ids masked first: an ObjectId is 24 hex digits, and one that holds 2222 is not the salary
+    // (CI on 11-28: `…b81122225807` failed this test).
+    const text = JSON.stringify(rows).replace(/\b[0-9a-f]{24}\b/g, '<id>')
     for (const secret of [FAKE_EGN, FAKE_IBAN, 'BG80BNBG96611020300000', '2222', 'pd1.', 'Example']) expect(text).not.toContain(secret)
   })
 })
