@@ -12,6 +12,13 @@
  * - **Never edited once released.** The runner records a checksum of the migration's file and
  *   refuses to start if an applied migration's code changed. A fix is a new migration.
  * - **Scoped by `ctx.orgFilter`** when it touches org data, so a node migrates only its own orgs.
+ * - **Convergent.** Run again after the previous release has written more data, it treats that data
+ *   as it treated the rest. A master whose update failed its confirmation goes back to the version
+ *   before, which writes in the old shape again, and the next update applies again what the failed
+ *   one applied (#980, `RunOptions.failedVersions`).
+ * - **A contract step is named in the registry's `CONTRACT`**: one that removes what an earlier
+ *   release reads, declares or writes (a field, an index, a collection). A master holds those while
+ *   an update is watched (#980). Nothing outside that list may depend on a step in it.
  */
 export interface Migration {
   /** `NNNN-kebab-name`. The registry runs them in this order; ids are never reused. */
@@ -31,6 +38,11 @@ export interface Migration {
    * migration without one (a test's) is checksummed over `up` as before.
    */
   fingerprint?: string
+  /**
+   * #980: a contract step (the registry's `CONTRACT`, attached like `fingerprint`, so a released
+   * file never changes). Held while an update is watched, applied once it is confirmed.
+   */
+  contract?: boolean
 }
 
 export interface MigrationContext {
@@ -60,4 +72,9 @@ export interface MigrationRecord {
   durationMs: number
   appVersion: string
   checksum: string
+  /**
+   * #980: the earlier runs of a step applied again, oldest first: the version that applied it,
+   * which then failed its confirmation, and when it did.
+   */
+  earlier?: Array<{ appVersion: string; appliedAt: Date }>
 }

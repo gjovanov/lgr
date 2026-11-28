@@ -368,6 +368,15 @@ impl Supervisor {
         *self.api_control.lock().unwrap() = Some((socket, secret));
     }
 
+    /// How many times the child `name` has started in this round, the first one included (#980: what
+    /// tells one start of the API from the next).
+    pub fn starts(&self, name: &str) -> Option<u32> {
+        self.children.lock().unwrap().iter().find_map(|k| {
+            let s = k.status.lock().unwrap();
+            (s.name == name).then_some(s.starts)
+        })
+    }
+
     /// The status, with the API's own account of itself (schedulers, a receipt in flight, open POS
     /// sessions) when it can give one within 2 s.
     pub async fn status_with_api(&self) -> serde_json::Value {

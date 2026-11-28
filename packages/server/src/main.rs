@@ -24,6 +24,7 @@ mod ipc;
 mod licence;
 mod logs;
 mod mdns_wire;
+mod migration_hold;
 mod mongod;
 mod night_restart;
 mod node_key;
@@ -548,8 +549,13 @@ fn run_round(runtime: &tokio::runtime::Runtime, shutdown: std::pin::Pin<&mut imp
             };
             let api = config::api_spec(&paths, mongo_uri.as_deref(), Some(&front)).map_err(config_error)?;
             held.extend(api.log.clone());
+            // #980: a start the update helper watches holds the contract migrations, until it is confirmed.
+            let holds = migration_hold::held_by(&api.env);
             sup.add(api);
             sup.set_api_control(front.socket.clone(), front.secret.clone());
+            if let (Some(version), Some(root)) = (holds, install::Root::here()) {
+                sup.add_service(tokio::spawn(migration_hold::run(sup.clone(), root, version)));
+            }
             sup.add_service(tokio::spawn(logs::run(held, mongod_plan, log_limits, logs::EVERY)));
 
             // The ingresses last (FR-20.11): the console only while setup is not complete.

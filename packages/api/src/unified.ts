@@ -38,14 +38,23 @@ await connectDB()
 logger.info('Connected to MongoDB')
 
 // --- Versioned migrations (FR-20.19), before anything reads the data ---
-// A failure stops the start: serving a half-migrated database is worse than not serving.
+// A failure stops the start: serving a half-migrated database is worse than not serving. On a master
+// (#980) a contract step is the exception: held while its update is watched, until the supervisor
+// releases it, and one that fails waits.
 if (config.migrations.auto) {
   const { mongoose } = await import('db/connection')
-  const { runMigrations } = await import('migrations/runner')
+  const { migrateAtStart } = await import('migrations/start')
   const { homeScope } = await import('db/home/home')
-  // FR-20.5: a migration runs for the orgs whose home is here; a master's orgs migrate on the master.
-  const result = await runMigrations({ db: mongoose.connection.db!, orgFilter: await homeScope(), log: (m, extra) => logger.info(extra ?? {}, m) })
-  logger.info({ applied: result.applied, alreadyApplied: result.alreadyApplied.length }, 'Migrations up to date')
+  await migrateAtStart({
+    db: mongoose.connection.db!,
+    // FR-20.5: a migration runs for the orgs whose home is here; a master's orgs migrate on the master.
+    scope: homeScope,
+    log: (m, extra) => logger.info(extra ?? {}, m),
+    warn: (m, extra) => logger.error(extra ?? {}, m),
+    // A master's supervisor says whether to hold, and which versions failed (`config.rs#update_env`);
+    // nothing anywhere else.
+    env: process.env,
+  })
 }
 
 const repos = await createMongoRepositories({ backend: 'mongo' })
@@ -211,6 +220,8 @@ if (config.front.controlSocket && config.front.secret) {
         audit: (await import('services/biz/audit-log.service')).auditHealth(),
         // FR-29.24: the declared indexes that did not build, guard indexes flagged.
         indexes: (await import('db/indexes/verify')).lastIndexReport(),
+        // #980: the contract steps a watched update holds, and when they ran after its confirmation.
+        migrations: (await import('migrations/start')).startMigrationsHealth(),
         // FR-20.22: what the status page shows. Unknown is never drift 0.
         clock: (() => {
           const trust = clockTrusted()
@@ -238,6 +249,8 @@ if (config.front.controlSocket && config.front.secret) {
         return b.blobFor(b.readBlobAsk(body))
       },
     },
+    // #980: what a watched update held of the migrations, released by the supervisor once it is confirmed.
+    migrations: { release: async () => ({ ...(await import('migrations/start')).releaseHeld() }) },
     // FR-20.18 (#350): the setup console's view of this server: the orgs homed here, the desktops paired.
     setup: async () => (await import('services/biz/node/setup-facts')).setupFacts(),
     // FR-20.20: what the update helper asks for before it switches versions.

@@ -399,6 +399,30 @@ fn api_stop_wait(operator: &BTreeMap<String, String>) -> std::time::Duration {
     std::time::Duration::from_millis(ms)
 }
 
+/// #980: what the API's migrations need of an update, and nobody else may say. The version it runs in,
+/// which every step it applies is recorded under, and, on an installed server, what the update
+/// helper's state says of this start (`migration_hold.rs`): hold the contract steps while it is the
+/// switch being watched (`migration_hold::run` releases them once it is confirmed), and apply again
+/// what a version that failed its confirmation applied. Not installed (a development build, a
+/// hand-unpacked home), there is no state: nothing is held, and the API runs every step as it always did.
+///
+/// ⚠ Read here, never by the API: Bun opens files without FILE_SHARE_DELETE on Windows, and a read
+/// overlapping the helper's save fails its rename over the file.
+fn update_env(env: &mut BTreeMap<String, String>, paths: &Paths, root: Option<&crate::install::Root>) {
+    use crate::migration_hold::{CONTRACT_ENV, FAILED_ENV};
+    let version = crate::updates::running_version(paths);
+    env.remove(CONTRACT_ENV);
+    env.remove(FAILED_ENV);
+    if let Some(root) = root {
+        let decision = crate::migration_hold::decide(&crate::install::UpdateState::load(root), &version);
+        env.insert(CONTRACT_ENV.to_string(), decision.contract().to_string());
+        if !decision.failed.is_empty() {
+            env.insert(FAILED_ENV.to_string(), decision.failed.join(","));
+        }
+    }
+    env.insert("LGR_SERVER_VERSION".to_string(), version);
+}
+
 /// The API child: `bun <package>/app/server.js` with the environment a master runs it in.
 /// `mongo_uri` is the supervised database's (from its bootstrap); without one, the operator's
 /// `MONGODB_URI` is used.
@@ -455,6 +479,7 @@ pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>, front: Option<&crate::fr
     if let Some(created) = crate::front::node_created_at(&paths.data) {
         env.insert("LGR_NODE_CREATED_AT".to_string(), created.to_string());
     }
+    update_env(&mut env, paths, crate::install::Root::here().as_ref());
     let stop = match front {
         Some(f) => {
             // FR-20.16: one listener, on loopback, on the front's port, answering the front secret.
@@ -790,6 +815,50 @@ mod tests {
         assert_eq!(api_spec(&paths, None, None).unwrap().env["LGR_NODE_ID"], id);
         assert!(spec.env.contains_key("JWT_SECRET"));
         assert!(spec.args[0].ends_with("server.js"));
+    }
+
+    /// #980: the API is told what the update helper's state says of its start, and never reads it.
+    #[test]
+    fn the_api_is_told_its_version_and_what_the_update_holds() {
+        use crate::install::{Attempt, Failure, UpdateState};
+        use crate::migration_hold::{CONTRACT_ENV, FAILED_ENV};
+        let (dir, paths) = layout();
+        let root = crate::install::Root(dir.path().join("root"));
+        // The home's manifest names the version; this layout has none, so the binary's own.
+        let v = env!("CARGO_PKG_VERSION");
+        let mut env: BTreeMap<String, String> =
+            [("LGR_SERVER_VERSION".to_string(), "9.9.9".to_string()), (CONTRACT_ENV.to_string(), "apply".to_string()), (FAILED_ENV.to_string(), "9.9.8".to_string())].into();
+        // Installed, nothing switched to yet: they run, and nothing failed.
+        update_env(&mut env, &paths, Some(&root));
+        assert_eq!(env["LGR_SERVER_VERSION"], v);
+        assert_eq!(env[CONTRACT_ENV], "try");
+        assert!(!env.contains_key(FAILED_ENV));
+        // The switch being watched, after an earlier one that was gone back from.
+        UpdateState {
+            current: v.into(),
+            last_known_good: "0.1.12".into(),
+            previous: String::new(),
+            attempting: Some(Attempt { version: v.into(), from: "0.1.12".into(), at: 1, by: "helper".into() }),
+            failed: vec![Failure { version: "0.0.9".into(), at: 1, reason: "it did not run cleanly".into() }],
+        }
+        .save(&root)
+        .unwrap();
+        update_env(&mut env, &paths, Some(&root));
+        assert_eq!((env[CONTRACT_ENV].as_str(), env[FAILED_ENV].as_str()), ("hold", "0.0.9"));
+        // A state that cannot be read holds.
+        std::fs::write(root.state_file(), "{ \"current\": \"0.1.1").unwrap();
+        update_env(&mut env, &paths, Some(&root));
+        assert_eq!(env[CONTRACT_ENV], "hold");
+        assert!(!env.contains_key(FAILED_ENV));
+        // Not an installed server: nothing is held, whatever was there.
+        update_env(&mut env, &paths, None);
+        assert!(!env.contains_key(CONTRACT_ENV) && !env.contains_key(FAILED_ENV));
+        // api.env says none of it.
+        std::fs::create_dir_all(paths.data.join("config")).unwrap();
+        std::fs::write(paths.data.join("config").join("api.env"), "LGR_SERVER_VERSION=9.9.9\nLGR_MIGRATIONS_CONTRACT=apply\n").unwrap();
+        let spec = api_spec(&paths, None, None).unwrap();
+        assert_eq!(spec.env["LGR_SERVER_VERSION"], v);
+        assert_ne!(spec.env.get(CONTRACT_ENV).map(String::as_str), Some("apply"));
     }
 
     #[test]

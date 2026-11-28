@@ -39,6 +39,12 @@ export interface ControlHandlers {
   setup?: () => Promise<Record<string, unknown>>
   /** FR-20.64 (plan step P3-2b): the mirror's pages, and global's resends. */
   replication?: ReplicationHandlers
+  /**
+   * #980: run the contract migrations this start held, once the supervisor has seen the update
+   * confirmed (`migrations/start.ts#releaseHeld`). Answers at once; the supervisor asks again until the
+   * answer says `released`.
+   */
+  migrations?: { release: () => Promise<Record<string, unknown>> }
 }
 
 export interface ReplicationHandlers {
@@ -72,6 +78,7 @@ export function startControlSocket(path: string, secret: string, handlers: Contr
     const { pathname } = new URL(request.url)
     if (request.method === 'GET' && pathname === '/status') return json(200, await handlers.status())
     if (request.method === 'GET' && pathname === '/setup' && handlers.setup) return json(200, await handlers.setup())
+    if (request.method === 'POST' && pathname === '/migrations/release' && handlers.migrations) return json(200, await handlers.migrations.release())
     if (request.method === 'POST' && pathname === '/backup' && handlers.backup) {
       // Awaited: the helper switches only on an answer that says the backup is done.
       const result = await handlers.backup()

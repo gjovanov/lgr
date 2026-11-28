@@ -70,8 +70,36 @@ export const RELEASED: Migration[] = [
   invoiceNumberParts,
 ]
 
-/** {@link RELEASED}, each carrying its file's fingerprint, which the runner checksums. */
+/**
+ * #980: the CONTRACT steps, which remove what an earlier release reads, declares or writes. Named here
+ * and not in their files, because a released file never changes.
+ *
+ * A master's update runs, in one start, every step the master skipped, and goes back to the version
+ * before if the update fails its confirmation (FR-20.20). Expand-then-contract keeps that safe only
+ * when the version gone back to is the release before, and a master skips releases: from 0.1.12, the
+ * update to 0.1.13 removes the legacy access fields 0.1.12 reads (0017, 0020), and indexes it
+ * declares, which it then builds again at its first start. So while an update is watched its contract
+ * steps are HELD: the new code reads none of what they remove, and they run once the update is
+ * confirmed (`runner.ts`, `start.ts`).
+ *
+ * ⚠ What belongs here: a step that drops a field, a collection or an index. Not a change of meaning
+ * the new code needs at once (0023's line totals): held, the new code would misread the data for as
+ * long as it is watched. What such a step did is applied again by the next update when the one that
+ * applied it failed (`failedVersions`). Nothing that is not listed may depend on a step that is: the
+ * runner goes on past a held one. `0016-roles-before-the-archive` reads what 0017 archives, and runs
+ * before it, held or not.
+ */
+export const CONTRACT: ReadonlySet<string> = new Set([
+  '0016-drop-unread-text-indexes',
+  '0017-legacy-access-archive',
+  '0019-drop-unused-indexes',
+  '0020-legacy-access-archive-drop',
+  '0022-drop-unused-indexes-fr30-5',
+])
+
+/** {@link RELEASED}, each carrying its file's fingerprint, which the runner checksums, and its {@link CONTRACT} mark. */
 export const MIGRATIONS: Migration[] = RELEASED.map(m => ({
   ...m,
   fingerprint: (FINGERPRINTS as Record<string, string | undefined>)[m.id],
+  ...(CONTRACT.has(m.id) ? { contract: true } : {}),
 }))
