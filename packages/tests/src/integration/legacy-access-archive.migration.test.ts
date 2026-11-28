@@ -70,9 +70,10 @@ async function world() {
 }
 
 describe('0017-legacy-access-archive (FR-27 P3-7)', () => {
-  it('is registered after 0016', () => {
+  it('is registered after 0016, right after the roles it must not run before (0016-roles-before-the-archive)', () => {
     const ids = MIGRATIONS.map(m => m.id)
-    expect(ids.indexOf('0017-legacy-access-archive')).toBe(ids.indexOf('0016-drop-unread-text-indexes') + 1)
+    expect(ids.indexOf('0016-roles-before-the-archive')).toBe(ids.indexOf('0016-drop-unread-text-indexes') + 1)
+    expect(ids.indexOf('0017-legacy-access-archive')).toBe(ids.indexOf('0016-roles-before-the-archive') + 1)
   })
 
   it('a person with every legacy field: each moves into the archive as it was, and is unset', async () => {

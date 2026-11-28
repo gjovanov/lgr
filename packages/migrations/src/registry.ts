@@ -16,6 +16,7 @@ import { accountingFilePermission } from './migrations/0013-accounting-file-perm
 import { sellerPermissionSets } from './migrations/0014-seller-permission-sets.js'
 import { rolesFromSets } from './migrations/0015-roles-from-sets.js'
 import { dropUnreadTextIndexes } from './migrations/0016-drop-unread-text-indexes.js'
+import { rolesBeforeTheArchive } from './migrations/0016-roles-before-the-archive.js'
 import { legacyAccessArchive } from './migrations/0017-legacy-access-archive.js'
 import { productSearchField } from './migrations/0018-product-search-field.js'
 import { dropUnusedIndexes } from './migrations/0019-drop-unused-indexes.js'
@@ -31,6 +32,11 @@ import FINGERPRINTS from './fingerprints.json' with { type: 'json' }
  * next number, and a released one is never removed, reordered or edited (the runner refuses a
  * changed checksum). The list is explicit rather than discovered from the file system, so a
  * bundled build carries exactly these and nothing a stray file adds.
+ *
+ * ⚠ One exception, `0016-roles-before-the-archive`, sits before 0017. A master skips releases, and
+ * the step it had to come before was already released: placed at the end it would run after 0020,
+ * when what it reads is gone. The runner runs what `_migrations` lacks in this order, so a node that
+ * ran 0017 already runs it after 0017, and an exception like it must then find nothing to do.
  *
  * A new migration also gets its line in `fingerprints.json`:
  * `bun run packages/migrations/src/fingerprint.ts --write`.
@@ -53,6 +59,7 @@ export const RELEASED: Migration[] = [
   sellerPermissionSets,
   rolesFromSets,
   dropUnreadTextIndexes,
+  rolesBeforeTheArchive,
   legacyAccessArchive,
   productSearchField,
   dropUnusedIndexes,

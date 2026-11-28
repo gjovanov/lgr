@@ -23,5 +23,6 @@
   "0021-relay-receipts-kept-60-days": "1b7e02c287f243e996ed571a7cda607bdc434492084230b9afb36ebf2b111f51",
   "0022-drop-unused-indexes-fr30-5": "373513c6b75639a090bab6cefa75a2a4e6750deab8ece4401bcb2e03aaa08dcc",
   "0023-imported-line-totals-gross": "3ad3022aeb5f9716ace524ef17806d6be587e7af5a599a35180e30d0ce618173",
-  "0024-invoice-number-parts": "cc84f8cd8312b69340fff65123517eba58a23801ed7b5f75656fd49d7120c72a"
+  "0024-invoice-number-parts": "cc84f8cd8312b69340fff65123517eba58a23801ed7b5f75656fd49d7120c72a",
+  "0016-roles-before-the-archive": "c9f5a158e22454ec439460157a34e0dbe2286f6bbc3cc11b312bfca38e562742"
 }
