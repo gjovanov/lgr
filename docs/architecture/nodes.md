@@ -116,6 +116,9 @@ run by hand.
   changed. A fix is a new migration.
 - **Every migration is idempotent.** `migrations.flow.test.ts` re-runs each on a seeded database
   and expects no change.
+- **A contract step is named in `CONTRACT`** (#980): one that removes what an earlier release
+  reads, declares or writes. A master holds those while an update is watched (see Server updates).
+  Nothing outside the list may depend on a step in it.
 
 ## Node state stays out of backups
 
@@ -354,6 +357,25 @@ The master's side, versioned installs (plan step P1-8b, `packages/server/src/{in
   in 10 minutes, on 3 minutes down, or with nothing clean by 20 minutes. It runs after every switch
   (the MSI starts it; the Linux unit pulls it in at every start) and at boot, and `reconcile` makes the
   pointers agree with the state after a crash.
+- **What the version gone back to meets** (#980, `migration_hold.rs`, `migrations/start.ts`). The
+  supervisor reads the helper's state when it builds the API's environment, and tells the API
+  (`LGR_MIGRATIONS_CONTRACT`, `LGR_MIGRATIONS_FAILED_VERSIONS`, `LGR_SERVER_VERSION`):
+  - while the attempt is its own version, or the state cannot be read, `hold`: the start holds the
+    contract steps (`registry.ts#CONTRACT`: the ones that remove a field, a collection or an index an
+    older release reads) and runs the rest. Once the version is the last known good, the supervisor
+    asks the API to run them (`POST /migrations/release` on the control socket), once for each start
+    of the API, since a respawned API is given the same environment. The status says what waits
+    (`api.migrations`);
+  - any other start of an installed server, `try`: a contract step that fails waits for a later
+    start, and the start goes on;
+  - every start applies again what a version that failed its confirmation applied: the version gone
+    back to wrote in the old shape meanwhile, and every step is convergent;
+  - a change of meaning (0023's line totals) is not held, because the new code reads it at once. The
+    version gone back to reads such data its own way until the next update applies the step again.
+  - ⚠ The API never reads the helper's state. Bun opens every file without FILE_SHARE_DELETE on
+    Windows, so a read that overlaps the helper's save fails its rename over the file (measured: 2,570
+    of 6,794 saves refused under `readFileSync`). Rust's std shares delete
+    (`migration_hold.rs#reading_the_state_never_fails_the_helpers_save`).
 - ⚠ **The service account may start the helper and nothing else** (its service DACL; the Linux unit is
   pulled in), and the helper reads nothing it acts on from the data directory, which that account may
   write (AC 59). Its view of the service's health comes over the supervisor's pipe, opened at

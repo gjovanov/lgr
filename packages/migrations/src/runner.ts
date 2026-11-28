@@ -17,7 +17,8 @@ type Db = mongo.Db
  *
  * Runs every registered migration that `_migrations` does not record, in registry order, one node
  * at a time, and records each one when it finishes. Called by `unified.ts` before `listen` when
- * `MIGRATIONS_AUTO=true`, and by `bun run migrate` (the plan's `lgr-api migrate`).
+ * `MIGRATIONS_AUTO=true` (through `start.ts`, which on a master holds the contract steps while an
+ * update is watched, #980), and by `bun run migrate` (the plan's `lgr-api migrate`).
  *
  * ⚠ What it does NOT do: take the backup FR-20.19 asks for first. That belongs to whoever starts
  * it — the master's supervisor runs one before `migrate` (plan A.3, start order step 5), and on
@@ -92,6 +93,9 @@ export function assertRegistryOrder(migrations: Migration[]): void {
   if (sorted.join() !== ids.join()) throw new Error(`Migrations are registered out of order: ${ids.join(', ')}`)
 }
 
+/** #980: what a run does with the CONTRACT steps (`registry.ts`): see `RunOptions.contract`. */
+export type ContractMode = 'apply' | 'hold' | 'try'
+
 export interface RunOptions {
   db: Db
   migrations?: Migration[]
@@ -104,11 +108,37 @@ export interface RunOptions {
   lockTtlMs?: number
   /** How long to wait for another node's run before giving up. */
   lockWaitMs?: number
+  /**
+   * #980: what this run does with the CONTRACT steps (`registry.ts`).
+   * - `apply`, the default (`bun run migrate`, lgrai.app): like any other step, and a failure stops the run.
+   * - `hold`: left pending (`held`). A master's start while its update is watched: if the update fails,
+   *   the version it goes back to still finds what it reads.
+   * - `try`: applied; one that fails is left pending (`held`, `deferred`) with every contract step after
+   *   it, and the other steps go on, since none depends on one. A master's start that is not watched,
+   *   and the run that applies the held steps once the update is confirmed. A contract step removes
+   *   only what nothing running reads, so one that cannot run yet never stops a master from serving:
+   *   after a confirmation there is no version to go back to, and no operator to start it again.
+   */
+  contract?: ContractMode
+  /**
+   * #980: versions that failed their confirmation, which the update helper went back from (the
+   * master's update state). A step one of them applied is applied again: the version gone back to has
+   * written data in the shape the step changes since, and every step is convergent (`types.ts`).
+   * Matched on the record's `appVersion`, which a master's API writes from 0.1.14 on. Before that every
+   * record says `dev` and names no version, so it is never applied again.
+   */
+  failedVersions?: string[]
 }
 
 export interface RunResult {
   applied: string[]
   alreadyApplied: string[]
+  /** #980: the contract steps this run left pending: held while an update is watched, or deferred after a failure. */
+  held: string[]
+  /** #980: of `applied`, the steps applied again because a version that failed its confirmation had applied them. */
+  reapplied: string[]
+  /** #980: the contract steps that failed under `try`, each with its error. */
+  deferred: Array<{ id: string; error: string }>
 }
 
 /** This run, as its lock names it: the machine, the process and the run (`host:pid:uuid`). */
@@ -226,12 +256,15 @@ export async function runMigrations(opts: RunOptions): Promise<RunResult> {
     log = () => {},
     lockTtlMs = 10 * 60_000,
     lockWaitMs = 15 * 60_000,
+    contract = 'apply',
+    failedVersions = [],
   } = opts
   assertRegistryOrder(migrations)
 
   const owner = lockOwner()
   await acquireLock(db, owner, lockTtlMs, lockWaitMs, log)
-  const result: RunResult = { applied: [], alreadyApplied: [] }
+  const result: RunResult = { applied: [], alreadyApplied: [], held: [], reapplied: [], deferred: [] }
+  const failed = new Set(failedVersions.filter(v => v && v !== 'dev'))
   try {
     const coll = db.collection<MigrationRecord>(COLLECTION)
     const records = new Map((await coll.find({ _id: { $ne: LOCK_ID } }).toArray()).map(r => [r._id, r]))
@@ -255,23 +288,53 @@ export async function runMigrations(opts: RunOptions): Promise<RunResult> {
       log(`Accepted the changed checksum of ${m.id}`)
     }
 
+    // The first contract step that failed under `try`: every contract step after it waits with it.
+    let blockedBy: string | null = null
     for (const m of migrations) {
-      if (records.has(m.id)) {
+      const rec = records.get(m.id)
+      // #980: applied by a version that failed its confirmation, and run as pending.
+      const again = rec !== undefined && failed.has(rec.appVersion)
+      if (rec && !again) {
         result.alreadyApplied.push(m.id)
         continue
       }
+      if (m.contract && (contract === 'hold' || blockedBy)) {
+        // Held keeps the record it has, so a step a failed version applied is still applied again later.
+        result.held.push(m.id)
+        continue
+      }
       const started = Date.now()
-      log(`Applying ${m.id}: ${m.description}`)
-      await m.up(ctx)
+      log(again
+        ? `Applying ${m.id} again: ${rec!.appVersion} applied it, failed its confirmation, and the version before it has run since`
+        : `Applying ${m.id}: ${m.description}`)
+      try {
+        await m.up(ctx)
+      } catch (e: any) {
+        if (!m.contract || contract !== 'try') throw e
+        const error = String(e?.message ?? e)
+        log(`${m.id} failed and waits for a later start, with the contract steps after it: ${error}`, { migration: m.id, error })
+        result.held.push(m.id)
+        result.deferred.push({ id: m.id, error })
+        blockedBy = m.id
+        continue
+      }
       const durationMs = Date.now() - started
-      await coll.insertOne({
-        _id: m.id,
-        description: m.description,
-        appliedAt: new Date(),
-        durationMs,
-        appVersion,
-        checksum: checksumOf(m),
-      })
+      if (again) {
+        await coll.updateOne({ _id: m.id }, {
+          $set: { appliedAt: new Date(), durationMs, appVersion, checksum: checksumOf(m) },
+          $push: { earlier: { appVersion: rec!.appVersion, appliedAt: rec!.appliedAt } },
+        })
+        result.reapplied.push(m.id)
+      } else {
+        await coll.insertOne({
+          _id: m.id,
+          description: m.description,
+          appliedAt: new Date(),
+          durationMs,
+          appVersion,
+          checksum: checksumOf(m),
+        })
+      }
       log(`Applied ${m.id} in ${durationMs} ms`)
       result.applied.push(m.id)
       await renewLock(db, owner, lockTtlMs)
