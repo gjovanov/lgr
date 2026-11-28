@@ -34,6 +34,7 @@ const MAY_IMPORT: ReadonlyArray<readonly [RegExp, string]> = [
   [/^packages\/migrations\//, 'released migrations (0015)'],
   [/^packages\/tests\/src\/unit\/access-legacy-frozen\.test\.ts$/, 'this test'],
   [/^packages\/tests\/src\/integration\/roles-migration\.flow\.test\.ts$/, "0015's own test: the oracle it proves the migration against"],
+  [/^packages\/tests\/src\/integration\/roles-before-archive\.migration\.test\.ts$/, "0016-roles-before-the-archive's test: 0015's rules are its oracle too"],
   [/^packages\/tests\/src\/unit\/access-client-grants\.test\.ts$/, 'a ratchet that names the compiler to forbid it in the client'],
   [/^packages\/tests\/src\/unit\/access-no-legacy\.test\.ts$/, "P3-8's grep test (acceptance 2): it names the compiler to forbid it everywhere else"],
 ]
