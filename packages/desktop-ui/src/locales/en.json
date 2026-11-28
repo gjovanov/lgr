@@ -66,7 +66,19 @@
       "upToDate": "This is the latest version.",
       "updatesManaged": "Updates for this computer are installed by whoever manages it.",
       "updateStarted": "Installing the update…",
-      "updateDeferred": "The till is in use — the update will install shortly.",
+      "updateDeferred": "The till is in use. The update installs by itself once the till is free, or in about 70 minutes if it stays in use.",
+      "updateWaiting": "Waiting to install {version}: it installs by itself once the till is free.",
+      "updateWaitingRetry": "The last try did not install it ({error}). It tries again by itself.",
+      "updateWithdrawn": "{version} was not installed: {reason}.",
+      "updateWithdrawnReasons": {
+        "expired": "it waited a day; press Install again",
+        "failed": "it failed three times in a row; the log has the details",
+        "no_update_offered": "the server no longer offers it",
+        "offer_changed": "the server now offers a newer version; press Check",
+        "automatic_updates_off": "automatic updates were switched off",
+        "not_an_upgrade": "this version is already installed",
+        "managed": "updates for this computer are installed by whoever manages it"
+      },
       "autoUpdateOn": "Automatic updates are on.",
       "autoUpdateOff": "Automatic updates are off. Updates install only when you press Install."
     },

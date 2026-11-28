@@ -100,8 +100,9 @@ pub struct AppState {
     presence_stop: Arc<Mutex<Option<Arc<std::sync::atomic::AtomicBool>>>>,
     /// FR-20.82 — the org moved and this desktop has not followed (yet), for the Overview.
     org_moved: Arc<Mutex<Option<status::OrgMoved>>>,
-    /// FR-14.28 — how many times the pending update has been put off for a busy till.
-    deferrals: Arc<update::Deferrals>,
+    /// FR-14.28 — the pending update: how many times it was put off for a busy till, and the
+    /// install the shell promised when it was (lgr#976). Shared by the Install button and the loop.
+    pending: Arc<update::Pending>,
     /// FR-14.14 — the PKCE verifier for an OAuth flow currently in the system browser.
     ///
     /// ⚠ **In memory only, and taken once.** It is the half of the credential that makes the
@@ -131,7 +132,7 @@ impl AppState {
             started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             presence_stop: Arc::new(Mutex::new(None)),
             org_moved: Arc::new(Mutex::new(None)),
-            deferrals: Arc::new(update::Deferrals::default()),
+            pending: Arc::new(update::Pending::default()),
             oauth_verifier: Arc::new(Mutex::new(None)),
             idp_flow: Arc::new(Mutex::new(None)),
             proxy: Arc::new(Mutex::new(None)),
@@ -468,6 +469,10 @@ fn run_update_check(app: &AppHandle) -> Result<update::CheckResult, String> {
 }
 
 /// Install a version the hub offered, if now is a safe moment (FR-14.28).
+///
+/// ⚠ `deferred` is a promise, and the shell keeps it (lgr#976): the press becomes an
+/// `InstallRequest` that the background loop carries out once the till is free, with automatic
+/// updates on or off.
 #[tauri::command]
 fn install_update(app: AppHandle, version: String) -> Result<String, String> {
     let running = app.package_info().version.to_string();
@@ -476,10 +481,25 @@ fn install_update(app: AppHandle, version: String) -> Result<String, String> {
     // within `BUSY_WINDOW_SECS`. See `BridgeState::till_state` for why it never reports
     // `MidReceipt`.
     let till = state.bridge.till_state();
+    let origin = update::Origin::Button;
+    let p = origin.log_prefix();
 
-    match update::try_install(&app, &running, &version, till, &state.deferrals)? {
-        update::UpdateAction::Install => Ok("installing".into()),
-        update::UpdateAction::Defer => Ok("deferred".into()),
+    match update::try_install(&app, &running, &version, till, &state.pending, origin) {
+        Ok(update::UpdateAction::Install) => Ok("installing".into()),
+        Ok(update::UpdateAction::Defer) => {
+            // ⚠ In the log as well as on the screen: whoever reads a till's log afterwards has to see
+            // that Install was pressed and put off (lgr#976).
+            state.logger.info(&format!(
+                "{p}: Install pressed for {version}: deferred, the till is in use ({}/{}); it installs once the till is free",
+                state.pending.deferrals.count(),
+                update::MAX_DEFERRALS
+            ));
+            Ok("deferred".into())
+        }
+        Err(e) => {
+            state.logger.warn(&format!("{p}: Install pressed for {version}: not installed: {e}"));
+            Err(e)
+        }
     }
 }
 
@@ -491,16 +511,21 @@ fn install_update(app: AppHandle, version: String) -> Result<String, String> {
 /// was already running.
 ///
 /// ⚠ It goes through exactly the path the Install button does — `try_install`, with the till
-/// state and the shared deferral counter — so automatic installs carry every rule in `update.rs`:
-/// no downgrade, never mid-receipt, never self-installing a per-machine install.
+/// state and the shared `Pending` — so automatic installs carry every rule in `update.rs`: no
+/// downgrade, never mid-receipt, never self-installing a per-machine install.
+///
+/// ⚠ It also KEEPS THE PROMISES (lgr#976). A deferral, the button's or its own, leaves an
+/// `InstallRequest`, and every tick acts on it before anything else, automatic updates on or off:
+/// at once when the till is free, every `RETRY_AFTER_DEFER_SECS` while it is in use, so the
+/// deferral limit still forces a till that is never free.
 fn start_auto_update(app: &AppHandle) {
     let handle = app.clone();
     let stop = app.state::<AppState>().stop.clone();
     std::thread::spawn(move || {
         let started = std::time::Instant::now();
         let mut last: Option<std::time::Instant> = None;
-        let mut deferred = false;
         let mut logged_enabled: Option<bool> = None;
+        restore_promise(&handle);
         while !stop.load(std::sync::atomic::Ordering::SeqCst) {
             let enabled = settings::load(&handle).auto_update;
             if logged_enabled != Some(enabled) {
@@ -510,17 +535,17 @@ fn start_auto_update(app: &AppHandle) {
                     .logger
                     .info(&format!("auto-update: {}", if enabled { "on" } else { "off" }));
             }
-            let due = update::auto_check_due(
-                enabled,
-                started.elapsed().as_secs(),
-                last.map(|t| t.elapsed().as_secs()),
-                deferred,
-            );
             // ⚠ An unregistered desktop has no token to fetch the manifest with; asking anyway
             // would log a refusal every four hours on a machine that is simply not set up yet.
-            if due && stored_registered() {
-                last = Some(std::time::Instant::now());
-                deferred = auto_update_once(&handle);
+            if stored_registered() {
+                keep_promise(&handle, enabled, started.elapsed().as_secs());
+                let due = update::auto_check_due(enabled, started.elapsed().as_secs(), last.map(|t| t.elapsed().as_secs()));
+                // ⚠ Not while a promise is open: it owns the retries, and a check of the same offer would
+                // spend a second attempt of the same deferral limit.
+                if due && handle.state::<AppState>().pending.request().is_none() {
+                    last = Some(std::time::Instant::now());
+                    auto_update_once(&handle);
+                }
             }
             // Short ticks so Quit is not held up and a changed setting is seen within seconds.
             std::thread::sleep(std::time::Duration::from_secs(15));
@@ -528,41 +553,117 @@ fn start_auto_update(app: &AppHandle) {
     });
 }
 
-/// One automatic check, and the install attempt if it found something. Returns whether the
-/// attempt was deferred for a busy till, which brings the next check forward.
-fn auto_update_once(app: &AppHandle) -> bool {
+/// lgr#976 — a promise the previous run saved is this run's to keep, or to close.
+fn restore_promise(app: &AppHandle) {
+    let st = app.state::<AppState>();
+    let file = match update::request_file(app) {
+        Ok(f) => f,
+        Err(e) => {
+            // Promises then live in memory only: kept for this run, lost to a restart.
+            st.logger.warn(&format!("update: no place to keep a deferred install over a restart: {e}"));
+            return;
+        }
+    };
+    let Some(req) = st.pending.attach(file) else { return };
+    let running = app.package_info().version.to_string();
+    let (p, v, now) = (req.origin.log_prefix(), req.version.clone(), update::now_unix());
+    let age_min = (now - req.requested_at).max(0) / 60;
+    match update::reconcile_at_start(req, &running, now) {
+        Ok(kept) => {
+            let again = if kept.last_error.is_some() { " (its last attempt failed)" } else { "" };
+            st.pending.set(Some(kept));
+            st.logger.info(&format!(
+                "{p}: {v} still waits to install{again}, as it was promised {age_min} min ago before this start"
+            ));
+        }
+        Err("installed") => {
+            st.pending.set(None);
+            st.logger.info(&format!("{p}: {v} is installed, as it was promised {age_min} min ago"));
+        }
+        Err(reason) => {
+            st.pending.withdraw(&v, reason, now);
+            st.logger.warn(&format!("{p}: {v} no longer waits to install: {reason}"));
+        }
+    }
+}
+
+/// lgr#976 — one tick of the promise: wait, try, or withdraw it.
+fn keep_promise(app: &AppHandle, auto_enabled: bool, secs_since_start: u64) {
+    let st = app.state::<AppState>();
+    let Some(req) = st.pending.request() else { return };
+    let now = update::now_unix();
+    let till = st.bridge.till_state();
+    let (p, v) = (req.origin.log_prefix(), req.version.as_str());
+    match update::request_step(&req, now, secs_since_start, till, st.bridge.is_busy(), auto_enabled) {
+        update::RequestStep::Wait => {}
+        update::RequestStep::Withdraw(reason) => {
+            st.pending.withdraw(v, reason, now);
+            st.logger.warn(&format!("{p}: {v} no longer waits to install: {reason}"));
+        }
+        update::RequestStep::Attempt => {
+            // ⚠ Logged BEFORE the attempt: a successful install on Windows never returns to say so.
+            let since_min = (now - req.requested_at).max(0) / 60;
+            let why = match till {
+                update::TillState::Idle => "the till is free: installing".to_string(),
+                _ => format!(
+                    "the till is still in use: trying again ({}/{})",
+                    st.pending.deferrals.count(),
+                    update::MAX_DEFERRALS
+                ),
+            };
+            st.logger.info(&format!("{p}: {v} was deferred {since_min} min ago; {why}"));
+            let running = app.package_info().version.to_string();
+            match update::try_install(app, &running, v, till, &st.pending, req.origin) {
+                Ok(update::UpdateAction::Defer) => st.logger.info(&format!(
+                    "{p}: {v} deferred again, the till is in use ({}/{})",
+                    st.pending.deferrals.count(),
+                    update::MAX_DEFERRALS
+                )),
+                Ok(update::UpdateAction::Install) => st.logger.info(&format!("{p}: installing {v}")),
+                // The other path is installing it right now; the promise is untouched.
+                Err(e) if e == update::INSTALL_IN_PROGRESS => {}
+                Err(e) => {
+                    let next = if st.pending.request().is_some() { "it tries again" } else { "no longer waits to install" };
+                    st.logger.warn(&format!("{p}: {v} not installed: {e}; {next}"));
+                }
+            }
+        }
+    }
+}
+
+/// One automatic check, and the install attempt if it found something. A deferral leaves a
+/// promise, which `keep_promise` carries out from the next tick.
+fn auto_update_once(app: &AppHandle) {
     let st = app.state::<AppState>();
     let check = match run_update_check(app) {
         Ok(c) => c,
         Err(e) => {
             // ⚠ A failed check is not a failed app — a till offline for the afternoon still sells.
             st.logger.warn(&format!("auto-update: check failed: {e}"));
-            return false;
+            return;
         }
     };
-    let Some(version) = check.available else { return false };
+    let Some(version) = check.available else { return };
     if check.managed {
         // Already logged by the check (`kind=per_machine`). Whoever manages the machine installs it.
-        return false;
+        return;
     }
 
     let running = app.package_info().version.to_string();
-    match update::try_install(app, &running, &version, st.bridge.till_state(), &st.deferrals) {
+    match update::try_install(app, &running, &version, st.bridge.till_state(), &st.pending, update::Origin::Auto) {
         Ok(update::UpdateAction::Defer) => {
             st.logger.info(&format!(
-                "auto-update: {version} deferred, the till is in use ({}/{})",
-                st.deferrals.count(),
+                "auto-update: {version} deferred, the till is in use ({}/{}); it installs once the till is free",
+                st.pending.deferrals.count(),
                 update::MAX_DEFERRALS
             ));
-            true
         }
         Ok(update::UpdateAction::Install) => {
             st.logger.info(&format!("auto-update: installing {version}"));
-            false
         }
+        Err(e) if e == update::INSTALL_IN_PROGRESS => {}
         Err(e) => {
             st.logger.warn(&format!("auto-update: {version} not installed: {e}"));
-            false
         }
     }
 }
@@ -982,6 +1083,9 @@ fn build_status(app: &AppHandle) -> status::Status {
             available: false,
             required: reg_status.update_required,
             version: None,
+            // lgr#976 — what the shell promised and has not done yet, or the last promise it withdrew.
+            request: app.state::<AppState>().pending.request(),
+            withdrawn: app.state::<AppState>().pending.withdrawn(),
         },
         assignment: reg_status.assignment,
         server_pin: status_pin(&s.server_url, None),

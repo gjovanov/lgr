@@ -225,6 +225,21 @@ after two checks against anchors compiled into the binary:
 **What can't:** the per-machine MSI never self-installs, and the hub offers no manifest for
 Linux.
 
+**When it installs** (`update.rs`):
+- at once when the till is free. While it is in use (a fiscal command in flight, or one in the
+  last 10 minutes) the install is deferred, and the eighth attempt goes through anyway.
+- ⚠ **A deferral is a promise the shell keeps** (lgr#976). It is kept in `update-request.json`,
+  beside the crash-loop record `update-state.json`. The update loop's 15 s tick carries it out,
+  with automatic updates on or off, and never while a command is in flight. The Overview shows it
+  until it installs or is withdrawn, and says why it was withdrawn:
+  - it is a day old;
+  - it failed three times in a row;
+  - it met a refusal that cannot change, such as `no_update_offered`;
+  - automatic updates were switched off. This withdraws only the loop's own promise: a pressed
+    Install stands.
+- Before 0.1.15 a deferred press was dropped when automatic updates were off, although the
+  message said it would be retried.
+
 ### Status and diagnostics
 
 - **`--status-json`** (FR-14.5): one machine-readable line, with no credential (`status.rs`).

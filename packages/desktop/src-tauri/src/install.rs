@@ -367,9 +367,18 @@ pub fn verify_installer(
 /// On Windows a successful call does not return: the plugin starts the installer and exits this
 /// process, and the installer restarts the app. On macOS the plugin swaps the `.app` in place and
 /// returns; this then restarts into the new version.
-pub fn install(app: &tauri::AppHandle, server_url: &str, version: &str) -> Result<(), String> {
+///
+/// `origin` names who asked in the log: `update:` for a press of Install, `auto-update:` for the
+/// background loop (lgr#976).
+pub fn install(
+    app: &tauri::AppHandle,
+    server_url: &str,
+    version: &str,
+    origin: crate::update::Origin,
+) -> Result<(), String> {
     use tauri_plugin_updater::UpdaterExt;
 
+    let log = origin.log_prefix();
     let key = pubkey().ok_or("updater_not_configured")?;
     let target = platform().ok_or("updater_unsupported_platform")?;
     let running = app.package_info().version.to_string();
@@ -416,7 +425,7 @@ pub fn install(app: &tauri::AppHandle, server_url: &str, version: &str) -> Resul
             logger
                 .state::<crate::AppState>()
                 .logger
-                .info("auto-update: installer started, exiting for it");
+                .info(&format!("{log}: installer started, exiting for it"));
         })
         .build()
         .map_err(|e| e.to_string())?;
@@ -437,7 +446,7 @@ pub fn install(app: &tauri::AppHandle, server_url: &str, version: &str) -> Resul
     let proven = verify_installer(&bytes, &update.signature, version, &scratch)?;
     app.state::<crate::AppState>()
         .logger
-        .info(&format!("auto-update: {version} verified (minisign + {proven})"));
+        .info(&format!("{log}: {version} verified (minisign + {proven})"));
 
     // ⚠ Before the install: on Windows the plugin exits the process from inside it, and an ephemeral
     // desktop restarting into its update must not unregister on the way (`should_unregister`).
@@ -451,7 +460,7 @@ pub fn install(app: &tauri::AppHandle, server_url: &str, version: &str) -> Resul
     // running process is still the old one until it restarts.
     app.state::<crate::AppState>()
         .logger
-        .info(&format!("auto-update: {version} installed, restarting into it"));
+        .info(&format!("{log}: {version} installed, restarting into it"));
     app.restart()
 }
 

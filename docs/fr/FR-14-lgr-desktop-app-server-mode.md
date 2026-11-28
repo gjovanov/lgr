@@ -605,7 +605,7 @@ September.
 | Manifest | server-proxied `GET /api/desktop/v1/latest-release`, per channel (stable / beta), checked at start (5-min cooldown) and every 4 h |
 | Trust | **both** must pass, and every check **fails closed**. (1) The Tauri updater signature against its key **pinned in the binary**. (2) The platform signature against **roomler's identity**, pinned in the binary: Authenticode subject `G ROX LTD`, the Developer ID Team ID, and the roomler release GPG key fingerprint for `.asc`. |
 | Direction | no downgrade, ever; an unparseable version is not an upgrade |
-| Deferral | defer while the bridge has a fiscal command in flight or has carried one in the last 10 minutes (the till is in use); force through after 7 deferrals, never mid-receipt |
+| Deferral | defer while the bridge has a fiscal command in flight or has carried one in the last 10 minutes (the till is in use); force through after 7 deferrals, never mid-receipt. A deferral is a **promise the shell keeps** (lgr#976): kept on disk, tried again every 10 minutes and at once when the till is free, with automatic updates on or off, never on a command in flight; withdrawn after a day, after three failures in a row, on a refusal that cannot change (the hub no longer offers it), and, for the loop's own promise only, when automatic updates are switched off |
 | Recovery | crash-loop rollback to `last_known_good_version`, marked *before* the attempt |
 | Admin | "Update now / all" from the Desktops page, under the same rules |
 | Per-machine installs | **managed updates** (FR-14.4): check, notify, report the version; never self-install, never elevate |
@@ -943,9 +943,10 @@ workflow being added, so there is one publish path and not two.
     Windows, and a second opener cannot take the port. `/ws/fiscal-bridge` refuses
     unauthenticated and cross-org registrations and never evicts an authenticated bridge
     silently.
-14. An update from N-1 to N installs when the till is idle and defers while the bridge is busy. A
-    one-byte-tampered artifact is refused, and so is an artifact signed by any identity other than
-    roomler's. A crash-looping N rolls back to N-1.
+14. An update from N-1 to N installs when the till is idle and defers while the bridge is busy.
+    The deferred update then installs by itself once the till is free, also with automatic
+    updates off (lgr#976). A one-byte-tampered artifact is refused, and so is an artifact signed
+    by any identity other than roomler's. A crash-looping N rolls back to N-1.
 15. Below `DESKTOP_MIN_VERSION`, the token endpoint answers 426 and the Overview offers the
     update, while `lgr-web` keeps working.
 16. No `sidecar`, `desktop-api`, `sync` or `dal-sqlite` code ships. No default credential or

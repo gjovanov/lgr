@@ -14,7 +14,9 @@
 //! manifest is an upgrade. If the two disagree, a fleet either updates in a loop or never
 //! updates at all.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::Mutex;
 
 /// How many times an update may be deferred for a busy till before it is forced through.
 ///
@@ -38,8 +40,8 @@ pub const CHECK_INTERVAL_SECS: u64 = 4 * 60 * 60;
 /// every start, and the start itself (Open LGR, the bridge opening its port) has the machine first.
 pub const START_COOLDOWN_SECS: u64 = 5 * 60;
 
-/// After a deferral, look again once the busy window could have closed — not in four hours. A
-/// deferral that waited a full interval would take 28 h to reach `MAX_DEFERRALS`.
+/// After a deferral, try again once the busy window could have closed — not in four hours. A
+/// promise retried at the full interval would take 28 h to reach `MAX_DEFERRALS`.
 pub const RETRY_AFTER_DEFER_SECS: u64 = BUSY_WINDOW_SECS as u64;
 // A retry slower than the normal period would make deferring pointless — checked at compile time.
 const _: () = assert!(RETRY_AFTER_DEFER_SECS < CHECK_INTERVAL_SECS);
@@ -47,18 +49,358 @@ const _: () = assert!(RETRY_AFTER_DEFER_SECS < CHECK_INTERVAL_SECS);
 /// Is an automatic check due?
 ///
 /// `secs_since_start` is the process's age; `secs_since_last` is `None` until the background loop
-/// has checked once. `deferred` is whether that last check ended in a deferral.
+/// has checked once.
 ///
 /// ⚠ `enabled` is read from the settings file on EVERY tick, not captured when the loop starts:
 /// switching automatic updates off has to stop the next attempt, not the next restart's.
-pub fn auto_check_due(enabled: bool, secs_since_start: u64, secs_since_last: Option<u64>, deferred: bool) -> bool {
+///
+/// ⚠ A deferral does not bring the next CHECK forward any more (lgr#976). The install it put off
+/// is an `InstallRequest`, which the loop carries out on the till's own clock (`request_step`),
+/// whoever deferred it. A check is only ever about finding something new.
+pub fn auto_check_due(enabled: bool, secs_since_start: u64, secs_since_last: Option<u64>) -> bool {
     if !enabled {
         return false;
     }
     match secs_since_last {
         None => secs_since_start >= START_COOLDOWN_SECS,
-        Some(s) if deferred => s >= RETRY_AFTER_DEFER_SECS,
         Some(s) => s >= CHECK_INTERVAL_SECS,
+    }
+}
+
+/// lgr#976 — how long the shell keeps an install it promised. A press of Install is consent to
+/// that moment's offer; a day later it would be a surprise, and pressing again is cheap.
+pub const REQUEST_TTL_SECS: i64 = 24 * 60 * 60;
+
+/// lgr#976 — after a FAILED attempt, the next one. A failure is retried on its own clock, whatever
+/// the till does: a hub that cannot be reached does not come back because the till went idle.
+pub const RETRY_AFTER_FAILURE_SECS: i64 = 15 * 60;
+
+/// lgr#976 — failed attempts in a row, a handover that did not take included, before a promise is
+/// withdrawn. It bounds a till whose installer fails every time to three tries, not one per start
+/// for a whole day.
+pub const MAX_REQUEST_FAILURES: u32 = 3;
+
+/// Unix seconds now: what an `InstallRequest` is dated by, because it outlives the process.
+pub fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// Who asked for an install (lgr#976). It decides the log's words, and whether switching automatic
+/// updates off withdraws the install.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Origin {
+    /// Someone pressed Install. ⚠ Their consent stands whatever the automatic-updates switch says:
+    /// "Updates install only when you press Install" is what the Overview says with it off.
+    Button,
+    /// The background loop's own attempt, with automatic updates on.
+    Auto,
+}
+
+impl Origin {
+    /// The log's prefix. ⚠ `auto-update:` on a person's install read as the loop's work on a till
+    /// whose loop was off (lgr#976). lgr-deploy's till lane accepts both prefixes.
+    pub fn log_prefix(self) -> &'static str {
+        match self {
+            Origin::Button => "update",
+            Origin::Auto => "auto-update",
+        }
+    }
+}
+
+/// lgr#976 — an install the shell has said it will carry out: a press of Install, or the loop's
+/// own attempt, that a till in use deferred.
+///
+/// ⚠ A deferral TELLS the person the update will install once the till is free, and before this
+/// nothing kept that promise. With automatic updates off nothing tried again; with them on, the
+/// loop waited out its 4-hour period, because only its own deferral brought the next try forward.
+/// The request is what the loop acts on now, whoever deferred, and it is saved, so a restart keeps
+/// the promise too.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallRequest {
+    pub version: String,
+    pub origin: Origin,
+    /// Unix seconds of the first deferral. ⚠ Later deferrals do not move it: `REQUEST_TTL_SECS`
+    /// counts from the consent, not from the last time the till was busy.
+    pub requested_at: i64,
+    /// Unix seconds of the last attempt, deferred or failed.
+    pub last_attempt_at: i64,
+    /// Why the last attempt failed; `None` when it deferred.
+    #[serde(default)]
+    pub last_error: Option<String>,
+    /// Failed attempts in a row. A deferral is not a failure.
+    #[serde(default)]
+    pub failures: u32,
+    /// Handed to the installer since the last start. ⚠ Set BEFORE the handover: on Windows a
+    /// successful one never returns, so only the next start can tell whether it took.
+    #[serde(default)]
+    pub handed_over: bool,
+}
+
+impl InstallRequest {
+    pub fn new(version: &str, origin: Origin, now: i64) -> Self {
+        Self {
+            version: version.to_string(),
+            origin,
+            requested_at: now,
+            last_attempt_at: now,
+            last_error: None,
+            failures: 0,
+            handed_over: false,
+        }
+    }
+
+    /// The till was in use again. Not a failure: the deferral count is what forces it through.
+    pub fn deferred(&mut self, now: i64) {
+        self.last_attempt_at = now;
+        self.last_error = None;
+        self.failures = 0;
+    }
+
+    /// An attempt failed with `err`. Returns whether the promise still stands.
+    pub fn failed(&mut self, now: i64, err: &str) -> bool {
+        self.last_attempt_at = now;
+        self.last_error = Some(err.to_string());
+        self.failures += 1;
+        // A known failure supersedes a handover nobody heard back from.
+        self.handed_over = false;
+        !is_final_error(err) && self.failures < MAX_REQUEST_FAILURES
+    }
+}
+
+/// lgr#976 — answers that end a promise at once: trying again would only repeat them.
+///
+/// ⚠ Matched as a whole code, or a code followed by `:`, never as a bare prefix. A prefix match is
+/// how a new error code would silently become final.
+const FINAL_ERRORS: &[&str] = &[
+    // The till already runs it, or something newer.
+    "not_an_upgrade",
+    // A per-machine install never installs itself.
+    "managed",
+    // The hub stopped offering it.
+    "no_update_offered",
+    // The hub moved on; the next check decides on the new offer.
+    "offer_changed",
+    "updater_not_configured",
+    "updater_unsupported_platform",
+];
+
+pub fn is_final_error(err: &str) -> bool {
+    FINAL_ERRORS
+        .iter()
+        .any(|code| err.strip_prefix(code).is_some_and(|rest| rest.is_empty() || rest.starts_with(':')))
+}
+
+/// The answer of an attempt made while another one is installing. It touches no promise: the
+/// install it would have made is already under way.
+pub const INSTALL_IN_PROGRESS: &str = "install_in_progress";
+
+/// What the loop does with a promise on this tick (lgr#976).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestStep {
+    Wait,
+    /// Try now. With the till free this installs. Still in use at the retry time, it counts a
+    /// deferral, which is what lets `MAX_DEFERRALS` force it through on a till that is never free.
+    Attempt,
+    /// Forget it, and say why.
+    Withdraw(&'static str),
+}
+
+/// The promise's policy, pure so it is tested without a till: `now` in Unix seconds,
+/// `secs_since_start` the process's age, `in_flight` whether a fiscal command is running right now
+/// (`BridgeState::is_busy`).
+///
+/// ⚠ **Never during a command in flight.** A promise can force an install about
+/// `MAX_DEFERRALS × RETRY_AFTER_DEFER_SECS` after one press, with nobody at the button, so it must
+/// never land on a running command. `Busy` cannot say "in flight" from "recently", so the caller
+/// says it; the next tick after the command ends is soon enough.
+pub fn request_step(
+    req: &InstallRequest,
+    now: i64,
+    secs_since_start: u64,
+    till: TillState,
+    in_flight: bool,
+    auto_enabled: bool,
+) -> RequestStep {
+    // ⚠ A request dated in the future is withdrawn, not waited for: a clock moved back by days would
+    // otherwise keep it alive for days. Pressing Install again is cheap; a surprise install is not.
+    let age = now - req.requested_at;
+    if !(0..REQUEST_TTL_SECS).contains(&age) {
+        return RequestStep::Withdraw("expired");
+    }
+    if req.origin == Origin::Auto && !auto_enabled {
+        return RequestStep::Withdraw("automatic_updates_off");
+    }
+    if req.failures >= MAX_REQUEST_FAILURES {
+        return RequestStep::Withdraw("failed");
+    }
+    // The start has the machine first, as for the loop's own first check.
+    if secs_since_start < START_COOLDOWN_SECS || in_flight {
+        return RequestStep::Wait;
+    }
+    let since = now - req.last_attempt_at;
+    if req.last_error.is_some() {
+        return if since >= RETRY_AFTER_FAILURE_SECS { RequestStep::Attempt } else { RequestStep::Wait };
+    }
+    match till {
+        TillState::Idle => RequestStep::Attempt,
+        TillState::MidReceipt => RequestStep::Wait,
+        TillState::Busy if since >= RETRY_AFTER_DEFER_SECS as i64 => RequestStep::Attempt,
+        TillState::Busy => RequestStep::Wait,
+    }
+}
+
+/// What a promise the previous run left means at this start (lgr#976): kept, or why not.
+pub fn reconcile_at_start(mut req: InstallRequest, running: &str, now: i64) -> Result<InstallRequest, &'static str> {
+    if !is_upgrade(running, &req.version) {
+        // This run IS that version, or a newer one: the promise was kept.
+        return Err("installed");
+    }
+    if req.handed_over && !req.failed(now, "install_did_not_take") {
+        // ⚠ Handed to the installer, and this is still the old version. Counted as a failure, so a
+        // till whose installer always fails stops trying after `MAX_REQUEST_FAILURES` starts.
+        return Err("failed");
+    }
+    Ok(req)
+}
+
+/// A promise withdrawn in this process, and why, for the Overview.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Withdrawn {
+    pub version: String,
+    pub reason: String,
+    pub at: i64,
+}
+
+/// lgr#976 — the update the shell is waiting to install, shared by the Install button and the
+/// background loop: how often it was put off, the install it promised, and whether an install is
+/// under way.
+#[derive(Default)]
+pub struct Pending {
+    pub deferrals: Deferrals,
+    request: Mutex<Option<InstallRequest>>,
+    /// Where `request` is saved. `None` keeps it in memory only (tests, and before `attach`).
+    file: Mutex<Option<PathBuf>>,
+    /// ⚠ One install at a time: the button and the loop can both decide to install at once.
+    installing: AtomicBool,
+    withdrawn: Mutex<Option<Withdrawn>>,
+}
+
+impl Pending {
+    /// Save the promise in `file` from now on, and load what the previous run left there.
+    pub fn attach(&self, file: PathBuf) -> Option<InstallRequest> {
+        let loaded = load_request(&file);
+        *self.file.lock().unwrap_or_else(|p| p.into_inner()) = Some(file);
+        *self.request.lock().unwrap_or_else(|p| p.into_inner()) = loaded.clone();
+        loaded
+    }
+
+    pub fn request(&self) -> Option<InstallRequest> {
+        self.request.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    pub fn withdrawn(&self) -> Option<Withdrawn> {
+        self.withdrawn.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    /// Change the promise and save it, in one hold of the lock: the button and the loop both write.
+    fn update<R>(&self, change: impl FnOnce(&mut Option<InstallRequest>) -> R) -> R {
+        let mut guard = self.request.lock().unwrap_or_else(|p| p.into_inner());
+        let out = change(&mut guard);
+        let file = self.file.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        if let Some(path) = file {
+            save_request(&path, guard.as_ref());
+        }
+        out
+    }
+
+    /// Replace the promise outright (`None` clears it).
+    pub fn set(&self, req: Option<InstallRequest>) {
+        self.update(|r| *r = req);
+    }
+
+    /// A deferral of `version`: the shell now owes this install.
+    pub fn promise(&self, version: &str, origin: Origin, now: i64) {
+        self.update(|r| match r {
+            Some(req) if req.version == version => {
+                // A person's press outranks the loop's own attempt: it survives automatic updates
+                // being switched off.
+                if origin == Origin::Button {
+                    req.origin = Origin::Button;
+                }
+                req.deferred(now);
+            }
+            _ => *r = Some(InstallRequest::new(version, origin, now)),
+        });
+    }
+
+    /// An attempt at `version` failed. Keeps the promise or withdraws it; true while it stands.
+    pub fn failed(&self, version: &str, err: &str, now: i64) -> bool {
+        let withdrawn = self.update(|r| {
+            let req = r.as_mut().filter(|req| req.version == version)?;
+            if req.failed(now, err) {
+                return None;
+            }
+            *r = None;
+            Some(if is_final_error(err) { err.to_string() } else { "failed".to_string() })
+        });
+        match withdrawn {
+            Some(reason) => {
+                self.note_withdrawn(version, &reason, now);
+                false
+            }
+            None => self.request().is_some_and(|req| req.version == version),
+        }
+    }
+
+    /// Forget the promise, and remember why for the Overview.
+    pub fn withdraw(&self, version: &str, reason: &str, now: i64) {
+        self.set(None);
+        self.note_withdrawn(version, reason, now);
+    }
+
+    fn note_withdrawn(&self, version: &str, reason: &str, now: i64) {
+        *self.withdrawn.lock().unwrap_or_else(|p| p.into_inner()) =
+            Some(Withdrawn { version: version.to_string(), reason: reason.to_string(), at: now });
+    }
+
+    /// Mark the promise for `version` handed over, BEFORE the handover.
+    fn handing_over(&self, version: &str) {
+        self.update(|r| {
+            if let Some(req) = r.as_mut().filter(|req| req.version == version) {
+                req.handed_over = true;
+            }
+        });
+    }
+}
+
+/// lgr#976 — where the promise is saved, beside the crash-loop state but in its own file, so the two
+/// never overwrite each other's read-modify-write.
+pub fn request_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(crate::paths::local_dir(app)?.join("update-request.json"))
+}
+
+/// ⚠ An unreadable file is no promise: fail closed, never a surprise install.
+pub fn load_request(path: &Path) -> Option<InstallRequest> {
+    std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok())
+}
+
+/// Write it whole, or remove it. Through a temporary file, so a torn write leaves the old promise or
+/// none, never half of one.
+pub fn save_request(path: &Path, req: Option<&InstallRequest>) {
+    let Some(req) = req else {
+        let _ = std::fs::remove_file(path);
+        return;
+    };
+    let Ok(text) = serde_json::to_string_pretty(req) else { return };
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, text).is_ok() && std::fs::rename(&tmp, path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
 }
 
@@ -427,18 +769,45 @@ pub fn save_state(app: &tauri::AppHandle, state: &UpdateState) {
 ///
 /// ⚠ While `updater.pub` is empty this is still `updater_not_configured` — the honest answer
 /// until the one-time key generation has happened.
-fn hand_to_installer(app: &tauri::AppHandle, version: &str) -> Result<(), String> {
+fn hand_to_installer(app: &tauri::AppHandle, version: &str, origin: Origin) -> Result<(), String> {
     let server = crate::settings::load(app).server_url;
-    crate::install::install(app, &server, version)
+    crate::install::install(app, &server, version, origin)
 }
 
-/// The install decision and, if it is time, the attempt (FR-14.28).
+/// The install decision and, if it is time, the attempt (FR-14.28), for the button and the loop
+/// alike.
+///
+/// ⚠ The promise's bookkeeping is HERE, once (lgr#976): a deferral promises the install, a failure
+/// keeps or withdraws the promise, and an install already under way leaves it alone. A caller that
+/// did its own would be a second, divergent opinion of what the shell has promised.
 pub fn try_install(
     app: &tauri::AppHandle,
     running: &str,
     candidate: &str,
     till: TillState,
-    deferrals: &Deferrals,
+    pending: &Pending,
+    origin: Origin,
+) -> Result<UpdateAction, String> {
+    let outcome = attempt(app, running, candidate, till, pending, origin);
+    let now = now_unix();
+    match &outcome {
+        Ok(UpdateAction::Defer) => pending.promise(candidate, origin, now),
+        Ok(UpdateAction::Install) => {}
+        Err(e) if e == INSTALL_IN_PROGRESS => {}
+        Err(e) => {
+            pending.failed(candidate, e, now);
+        }
+    }
+    outcome
+}
+
+fn attempt(
+    app: &tauri::AppHandle,
+    running: &str,
+    candidate: &str,
+    till: TillState,
+    pending: &Pending,
+    origin: Origin,
 ) -> Result<UpdateAction, String> {
     if !is_upgrade(running, candidate) {
         // Covers downgrades, equality and unparseable tags in one place.
@@ -446,7 +815,7 @@ pub fn try_install(
     }
 
     // A different candidate starts its own deferral count.
-    deferrals.target(candidate);
+    pending.deferrals.target(candidate);
 
     let kind = detect_install_kind_here();
     if !kind.may_self_install() {
@@ -454,19 +823,25 @@ pub fn try_install(
         return Err("managed".into());
     }
 
-    match decide(till, deferrals.count()) {
+    match decide(till, pending.deferrals.count()) {
         UpdateAction::Defer => {
-            deferrals.record();
+            pending.deferrals.record();
             Ok(UpdateAction::Defer)
         }
         UpdateAction::Install => {
+            if pending.installing.swap(true, Ordering::SeqCst) {
+                return Err(INSTALL_IN_PROGRESS.into());
+            }
             // ⚠ BEFORE the attempt. Written afterwards, a crash loop has nothing to roll back to.
             let mut state = load_state(app);
             state.begin_attempt(running, candidate);
             save_state(app, &state);
+            pending.handing_over(candidate);
 
-            hand_to_installer(app, candidate)?;
-            Ok(UpdateAction::Install)
+            let handed = hand_to_installer(app, candidate, origin);
+            // Reached on a failure: a successful install exits (Windows) or restarts (macOS) inside it.
+            pending.installing.store(false, Ordering::SeqCst);
+            handed.map(|()| UpdateAction::Install)
         }
     }
 }
@@ -553,30 +928,270 @@ mod tests {
     #[test]
     fn automatic_updates_off_never_checks() {
         for last in [None, Some(0), Some(CHECK_INTERVAL_SECS * 10)] {
-            for deferred in [false, true] {
-                assert!(!auto_check_due(false, u64::MAX, last, deferred), "{last:?}/{deferred}");
-            }
+            assert!(!auto_check_due(false, u64::MAX, last), "{last:?}");
         }
     }
 
     #[test]
     fn the_first_automatic_check_waits_out_the_start_cooldown() {
-        assert!(!auto_check_due(true, 0, None, false));
-        assert!(!auto_check_due(true, START_COOLDOWN_SECS - 1, None, false));
-        assert!(auto_check_due(true, START_COOLDOWN_SECS, None, false));
+        assert!(!auto_check_due(true, 0, None));
+        assert!(!auto_check_due(true, START_COOLDOWN_SECS - 1, None));
+        assert!(auto_check_due(true, START_COOLDOWN_SECS, None));
     }
 
     #[test]
     fn later_checks_run_every_interval() {
-        assert!(!auto_check_due(true, u64::MAX, Some(CHECK_INTERVAL_SECS - 1), false));
-        assert!(auto_check_due(true, u64::MAX, Some(CHECK_INTERVAL_SECS), false));
+        assert!(!auto_check_due(true, u64::MAX, Some(CHECK_INTERVAL_SECS - 1)));
+        assert!(auto_check_due(true, u64::MAX, Some(CHECK_INTERVAL_SECS)));
+    }
+
+    // ---- lgr#976: a deferred install is a promise the loop keeps ----
+
+    /// A process old enough to be past the start cooldown.
+    const RUNNING: u64 = START_COOLDOWN_SECS + 1;
+    const T0: i64 = 1_800_000_000;
+
+    fn req(origin: Origin) -> InstallRequest {
+        InstallRequest::new("0.1.15", origin, T0)
     }
 
     #[test]
-    fn a_deferral_is_retried_after_the_busy_window_not_the_interval() {
-        // Otherwise reaching MAX_DEFERRALS on a busy till takes over a day.
-        assert!(!auto_check_due(true, u64::MAX, Some(RETRY_AFTER_DEFER_SECS - 1), true));
-        assert!(auto_check_due(true, u64::MAX, Some(RETRY_AFTER_DEFER_SECS), true));
+    fn a_deferred_press_installs_once_the_till_is_free_with_automatic_updates_off() {
+        // ⚠ The bug: "the update will install shortly", and with automatic updates off nothing did.
+        let r = req(Origin::Button);
+        assert_eq!(request_step(&r, T0 + 60, RUNNING, TillState::Busy, false, false), RequestStep::Wait);
+        assert_eq!(request_step(&r, T0 + 60, RUNNING, TillState::Idle, false, false), RequestStep::Attempt);
+    }
+
+    #[test]
+    fn a_busy_till_is_tried_again_after_the_busy_window_not_the_check_interval() {
+        // With automatic updates ON the old loop waited out its 4-hour period after a button's deferral.
+        let r = req(Origin::Button);
+        let retry = RETRY_AFTER_DEFER_SECS as i64;
+        for auto in [false, true] {
+            assert_eq!(request_step(&r, T0 + retry - 1, RUNNING, TillState::Busy, false, auto), RequestStep::Wait);
+            assert_eq!(request_step(&r, T0 + retry, RUNNING, TillState::Busy, false, auto), RequestStep::Attempt);
+        }
+    }
+
+    #[test]
+    fn a_till_that_is_never_free_is_still_forced_through_at_the_eighth_attempt() {
+        // The deferral limit is what makes a busy till update at all; the promise must not undo it by
+        // retrying every tick (seven deferrals in two minutes) or never (no force-through).
+        let d = Deferrals::default();
+        d.target("0.1.15");
+        let mut r = req(Origin::Button);
+        assert_eq!(decide(TillState::Busy, d.count()), UpdateAction::Defer); // the press itself
+        d.record();
+        let mut now = T0;
+        let mut attempts = 1;
+        loop {
+            now += 15; // the loop's tick
+            assert!(now - T0 < REQUEST_TTL_SECS, "never forced through");
+            if request_step(&r, now, RUNNING, TillState::Busy, false, false) != RequestStep::Attempt {
+                continue;
+            }
+            attempts += 1;
+            match decide(TillState::Busy, d.count()) {
+                UpdateAction::Defer => {
+                    d.record();
+                    r.deferred(now);
+                }
+                UpdateAction::Install => break,
+            }
+        }
+        assert_eq!(attempts, MAX_DEFERRALS + 1);
+        let waited = now - T0;
+        assert!(waited >= (MAX_DEFERRALS as i64) * RETRY_AFTER_DEFER_SECS as i64, "{waited} s");
+        assert!(waited < (MAX_DEFERRALS as i64 + 1) * RETRY_AFTER_DEFER_SECS as i64, "{waited} s");
+    }
+
+    #[test]
+    fn a_promise_never_lands_on_a_command_in_flight() {
+        // ⚠ It can force an install with nobody at the button, so not even the forced attempt runs
+        // while a fiscal command does — whatever the count, the till state or the clock say.
+        let mut r = req(Origin::Button);
+        for till in [TillState::Idle, TillState::Busy] {
+            assert_eq!(request_step(&r, T0 + 3600, RUNNING, till, true, true), RequestStep::Wait, "{till:?}");
+        }
+        assert!(r.failed(T0, "download_failed: x"));
+        assert_eq!(request_step(&r, T0 + 3600, RUNNING, TillState::Busy, true, true), RequestStep::Wait);
+        // The command over, the very next tick tries.
+        assert_eq!(request_step(&r, T0 + 3600, RUNNING, TillState::Busy, false, true), RequestStep::Attempt);
+    }
+
+    #[test]
+    fn mid_receipt_waits_even_when_the_retry_is_due() {
+        let r = req(Origin::Button);
+        assert_eq!(request_step(&r, T0 + 3600, RUNNING, TillState::MidReceipt, false, true), RequestStep::Wait);
+    }
+
+    #[test]
+    fn a_promise_waits_out_the_start_cooldown() {
+        // A promise kept over a restart does not install while the start still has the machine.
+        let r = req(Origin::Button);
+        assert_eq!(request_step(&r, T0 + 3600, START_COOLDOWN_SECS - 1, TillState::Idle, false, true), RequestStep::Wait);
+        assert_eq!(request_step(&r, T0 + 3600, START_COOLDOWN_SECS, TillState::Idle, false, true), RequestStep::Attempt);
+    }
+
+    #[test]
+    fn a_failure_is_retried_on_its_own_clock_whatever_the_till_does() {
+        let mut r = req(Origin::Button);
+        assert!(r.failed(T0, "download_failed: timed out"));
+        // Idle does not hammer an unreachable hub every tick.
+        assert_eq!(request_step(&r, T0 + 60, RUNNING, TillState::Idle, false, true), RequestStep::Wait);
+        assert_eq!(
+            request_step(&r, T0 + RETRY_AFTER_FAILURE_SECS, RUNNING, TillState::Idle, false, true),
+            RequestStep::Attempt
+        );
+    }
+
+    #[test]
+    fn a_promise_expires_after_a_day_and_one_from_the_future_is_withdrawn() {
+        let r = req(Origin::Button);
+        assert_eq!(
+            request_step(&r, T0 + REQUEST_TTL_SECS, RUNNING, TillState::Idle, false, true),
+            RequestStep::Withdraw("expired")
+        );
+        // ⚠ A clock moved back by days must not keep a stale consent alive for days.
+        assert_eq!(request_step(&r, T0 - 1, RUNNING, TillState::Idle, false, true), RequestStep::Withdraw("expired"));
+    }
+
+    #[test]
+    fn switching_automatic_updates_off_withdraws_only_the_loops_own_promise() {
+        assert_eq!(
+            request_step(&req(Origin::Auto), T0 + 60, RUNNING, TillState::Idle, false, false),
+            RequestStep::Withdraw("automatic_updates_off")
+        );
+        // A person's press stands: it is the consent "updates install only when you press Install" asks for.
+        assert_eq!(request_step(&req(Origin::Button), T0 + 60, RUNNING, TillState::Idle, false, false), RequestStep::Attempt);
+    }
+
+    #[test]
+    fn three_failures_in_a_row_withdraw_a_promise_and_a_deferral_forgives_them() {
+        let mut r = req(Origin::Button);
+        assert!(r.failed(T0, "download_failed: x"));
+        r.deferred(T0 + 1);
+        assert_eq!(r.failures, 0, "a deferral is not a failure, and ends a run of them");
+        assert!(r.failed(T0 + 2, "download_failed: x"));
+        assert!(r.failed(T0 + 3, "install_failed: x"));
+        assert!(!r.failed(T0 + 4, "download_failed: x"), "the third failure in a row withdraws it");
+        assert_eq!(
+            request_step(&r, T0 + 5, RUNNING, TillState::Idle, false, true),
+            RequestStep::Withdraw("failed")
+        );
+    }
+
+    #[test]
+    fn a_final_error_withdraws_at_once_and_is_matched_as_a_whole_code() {
+        for err in ["not_an_upgrade", "managed", "no_update_offered", "offer_changed: decided 0.1.15, hub now offers 0.1.16"] {
+            assert!(is_final_error(err), "{err}");
+            assert!(!req(Origin::Button).failed(T0, err), "{err}");
+        }
+        // ⚠ Never a bare prefix: a new code that starts like a final one is retried, not dropped.
+        for err in ["managed_elsewhere", "offer_changedx", "download_failed: managed", "install_failed: no_update_offered"] {
+            assert!(!is_final_error(err), "{err}");
+        }
+    }
+
+    #[test]
+    fn a_second_press_keeps_the_first_consent_and_outranks_the_loop() {
+        let p = Pending::default();
+        p.promise("0.1.15", Origin::Auto, T0);
+        p.promise("0.1.15", Origin::Button, T0 + 600);
+        let r = p.request().unwrap();
+        assert_eq!(r.origin, Origin::Button, "a person's press survives automatic updates being switched off");
+        assert_eq!(r.requested_at, T0, "the day counts from the first consent");
+        assert_eq!(r.last_attempt_at, T0 + 600);
+
+        // The loop deferring the same version later does not demote it.
+        p.promise("0.1.15", Origin::Auto, T0 + 1200);
+        assert_eq!(p.request().unwrap().origin, Origin::Button);
+
+        // A different version is a different consent.
+        p.promise("0.1.16", Origin::Auto, T0 + 1800);
+        let r = p.request().unwrap();
+        assert_eq!((r.version.as_str(), r.origin, r.requested_at), ("0.1.16", Origin::Auto, T0 + 1800));
+    }
+
+    #[test]
+    fn a_failure_of_another_version_leaves_the_promise_alone() {
+        let p = Pending::default();
+        p.promise("0.1.15", Origin::Button, T0);
+        assert!(!p.failed("0.1.16", "managed", T0 + 1));
+        assert_eq!(p.request().unwrap().version, "0.1.15");
+        assert!(p.withdrawn().is_none());
+    }
+
+    #[test]
+    fn a_withdrawn_promise_says_why() {
+        let p = Pending::default();
+        p.promise("0.1.15", Origin::Button, T0);
+        assert!(!p.failed("0.1.15", "offer_changed: decided 0.1.15, hub now offers 0.1.16", T0 + 1));
+        assert!(p.request().is_none());
+        let w = p.withdrawn().unwrap();
+        assert_eq!((w.version.as_str(), w.reason.as_str()), ("0.1.15", "offer_changed: decided 0.1.15, hub now offers 0.1.16"));
+
+        p.promise("0.1.16", Origin::Button, T0 + 2);
+        for _ in 0..MAX_REQUEST_FAILURES {
+            p.failed("0.1.16", "download_failed: x", T0 + 3);
+        }
+        assert!(p.request().is_none());
+        assert_eq!(p.withdrawn().unwrap().reason, "failed", "a transient error is summarised, not quoted as final");
+    }
+
+    #[test]
+    fn at_start_a_kept_promise_is_closed_and_one_that_did_not_take_counts_as_a_failure() {
+        let mut r = req(Origin::Button);
+        assert_eq!(reconcile_at_start(r.clone(), "0.1.15", T0), Err("installed"));
+        assert_eq!(reconcile_at_start(r.clone(), "0.1.16", T0), Err("installed"));
+
+        // Never handed over (the till was in use until the restart): kept as it was.
+        assert_eq!(reconcile_at_start(r.clone(), "0.1.14", T0 + 5), Ok(r.clone()));
+
+        // ⚠ Handed over, and still the old version: the installer failed after this process exited.
+        r.handed_over = true;
+        let kept = reconcile_at_start(r.clone(), "0.1.14", T0 + 5).unwrap();
+        assert_eq!(kept.failures, 1);
+        assert!(!kept.handed_over, "counted once, not again at every later start");
+        assert_eq!(kept.last_error.as_deref(), Some("install_did_not_take"));
+
+        // An installer that never takes stops being retried.
+        let mut r = kept;
+        for _ in 1..MAX_REQUEST_FAILURES - 1 {
+            r.handed_over = true;
+            r = reconcile_at_start(r, "0.1.14", T0 + 6).unwrap();
+        }
+        r.handed_over = true;
+        assert_eq!(reconcile_at_start(r, "0.1.14", T0 + 7), Err("failed"));
+    }
+
+    #[test]
+    fn a_promise_survives_a_restart_through_its_file() {
+        let dir = std::env::temp_dir().join(format!("lgr-976-{}-{}", std::process::id(), now_unix()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("update-request.json");
+
+        let p = Pending::default();
+        assert_eq!(p.attach(file.clone()), None, "no file is no promise");
+        p.promise("0.1.15", Origin::Button, T0);
+
+        let after_restart = Pending::default();
+        assert_eq!(after_restart.attach(file.clone()), p.request());
+
+        // ⚠ A torn or foreign file is no promise: fail closed, never a surprise install.
+        std::fs::write(&file, "{\"version\":").unwrap();
+        assert_eq!(load_request(&file), None);
+
+        p.set(None);
+        assert!(!file.exists(), "a withdrawn promise leaves no file behind");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_log_says_who_asked() {
+        assert_eq!(Origin::Button.log_prefix(), "update");
+        assert_eq!(Origin::Auto.log_prefix(), "auto-update");
     }
 
     #[test]
