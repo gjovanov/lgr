@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { Org } from 'db/models'
 import { homeScope } from 'db/home/home'
 import { runBackupForOrg } from './backup-runner.service.js'
@@ -24,10 +25,25 @@ export interface PreUpdateBackup {
   runs: Array<{ orgId: string; slug?: string; status: string; reason?: string; filename?: string; bytes?: number }>
 }
 
+/**
+ * The stamp of one backup before an update, which names both its claim and its file (#981).
+ *
+ * ⚠ Unique to each call, not just to its second. The run is forced, and two forced builders on one
+ * claim and one file race: the second takes the first one's claim over and writes the same file,
+ * and the row's recorded sha256 may then describe neither. The update helper asks once per switch,
+ * but `lgr-server backup now` can be asked twice within a second. The field lanes did that, and the
+ * second backup wrote over the first one's file. The milliseconds and a random tail make each
+ * stamp unique, and the second still comes first, so the stamps sort as they did.
+ */
+export function preUpdateStamp(now: Date, tail = randomBytes(3).toString('hex')): string {
+  const iso = now.toISOString()
+  return `pre-update-${iso.slice(0, 19).replace(/[-:]/g, '').replace('T', '-')}-${iso.slice(20, 23)}-${tail}`
+}
+
 export async function backupBeforeUpdate(now = new Date()): Promise<PreUpdateBackup> {
   const orgs = await Org.find({ ...(await homeScope('_id')) }, { _id: 1, slug: 1, settings: 1 }).lean().exec()
-  // One stamp for the whole run: the bundles of one update share it, and it sorts after the night's.
-  const stamp = `pre-update-${now.toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-')}`
+  // One stamp for the whole run: the bundles of one update share it, and no other run does.
+  const stamp = preUpdateStamp(now)
   const runs: PreUpdateBackup['runs'] = []
   for (const org of orgs as any[]) {
     const orgId = String(org._id)
