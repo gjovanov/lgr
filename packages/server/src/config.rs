@@ -353,11 +353,37 @@ pub(crate) fn write_durable(file: &Path, bytes: &[u8], mode: u32) -> Result<()> 
         std::io::Write::write_all(&mut f, bytes).with_context(|| format!("writing {}", tmp.display()))?;
         f.sync_all().with_context(|| format!("flushing {}", tmp.display()))?;
     }
-    std::fs::rename(&tmp, file).with_context(|| format!("writing {}", file.display()))?;
+    rename_over(&tmp, file, RENAME_PATIENCE).with_context(|| format!("writing {}", file.display()))?;
     if let Some(dir) = dir {
         sync_dir(dir)?;
     }
     Ok(())
+}
+
+/// How long a rename over a file waits for a reader that keeps Windows from replacing it (#986).
+const RENAME_PATIENCE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Rename `tmp` over `file`.
+///
+/// ⚠ On Windows a reader that opened either file without FILE_SHARE_DELETE makes the rename fail until
+/// it closes it. That is every read the API makes (Bun shares no delete: measured, 2,570 of 6,794
+/// renames refused under a reading loop), and a virus scanner looking at a file just written. A read
+/// takes a millisecond, so the rename is tried again every 10 ms for up to `patience` (#986): on the
+/// calling thread, which is what a durable write already blocks on its flush.
+fn rename_over(tmp: &Path, file: &Path, patience: std::time::Duration) -> std::io::Result<()> {
+    let until = std::time::Instant::now() + patience;
+    loop {
+        match std::fs::rename(tmp, file) {
+            Err(e) if held_open(&e) && std::time::Instant::now() < until => std::thread::sleep(std::time::Duration::from_millis(10)),
+            done => return done,
+        }
+    }
+}
+
+/// What Windows answers a rename while someone holds a file without FILE_SHARE_DELETE:
+/// ERROR_ACCESS_DENIED or ERROR_SHARING_VIOLATION. Elsewhere a rename is never held up by a reader.
+fn held_open(e: &std::io::Error) -> bool {
+    cfg!(windows) && matches!(e.raw_os_error(), Some(5) | Some(32))
 }
 
 /// Flush a directory, so a rename or a new link in it survives a power cut. A no-op on Windows,
@@ -543,6 +569,62 @@ mod tests {
         let state = dir.path().join("lan.json");
         write_durable(&state, b"{}", 0o644).unwrap();
         assert_eq!(std::fs::metadata(&state).unwrap().permissions().mode() & 0o777, 0o644);
+    }
+
+    /// #986: a reader that shares no delete, as every Bun read opens a file on Windows.
+    #[cfg(windows)]
+    fn held_by_a_reader(file: &Path) -> std::fs::File {
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_SHARE_READ, and nothing else.
+        std::fs::OpenOptions::new().read(true).share_mode(0x1).open(file).unwrap()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_reader_that_shares_no_delete_delays_a_durable_write_and_does_not_fail_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("node-token.json");
+        write_durable(&file, b"{\"n\":1}", 0o644).unwrap();
+        let reader = held_by_a_reader(&file);
+        // What every write met before: refused while the file is read.
+        let tmp = dir.path().join("probe.tmp");
+        std::fs::write(&tmp, b"{\"n\":2}").unwrap();
+        let refused = rename_over(&tmp, &file, std::time::Duration::ZERO).unwrap_err();
+        assert!(held_open(&refused), "{refused:?}");
+        // The reader closes it 200 ms later: the write waits for that, and lands.
+        let closer = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            drop(reader);
+        });
+        write_durable(&file, b"{\"n\":3}", 0o644).unwrap();
+        closer.join().unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "{\"n\":3}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_reader_that_never_lets_go_fails_the_write_once_the_patience_is_spent() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("registration.json");
+        write_durable(&file, b"{\"n\":1}", 0o644).unwrap();
+        let _reader = held_by_a_reader(&file);
+        let tmp = dir.path().join("probe.tmp");
+        std::fs::write(&tmp, b"{\"n\":2}").unwrap();
+        let started = std::time::Instant::now();
+        let e = rename_over(&tmp, &file, std::time::Duration::from_millis(300)).unwrap_err();
+        assert!(held_open(&e), "{e:?}");
+        let waited = started.elapsed();
+        assert!(waited >= std::time::Duration::from_millis(300) && waited < std::time::Duration::from_secs(2), "{waited:?}");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "{\"n\":1}", "the file the reader holds is untouched");
+    }
+
+    #[test]
+    fn only_windows_holds_a_rename_up_for_a_reader() {
+        // EIO and EPIPE on Unix, which a retry would only hide.
+        for code in [5, 32] {
+            assert_eq!(held_open(&std::io::Error::from_raw_os_error(code)), cfg!(windows), "{code}");
+        }
+        assert!(!held_open(&std::io::Error::from(std::io::ErrorKind::NotFound)));
     }
 
     #[test]
