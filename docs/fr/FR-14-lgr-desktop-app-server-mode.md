@@ -1318,3 +1318,34 @@ Published 2026-11-19 04:38 UTC from draft 450671307 (its `target_commitish` was 
 - Desktop CI on the tag (run 44459698177) passed on its first attempt: the three builds, and the Windows smoke with 14 cases passed.
 - Offered to the fleet by lgr-deploy `8fb76ef` (`DESKTOP_RELEASE_VERSION` 0.1.14). ArgoCD is Synced and Healthy, and both new pods read it.
 - Through `/api/desktop/download/0.1.14`, the page answers 200, and the MSI, the Windows installer and its `.sig` come back with the release's own sha256 digests.
+
+#### desktop-v0.1.15 (2026-11-28), against the hub's v20261128-436c83d99d4e
+
+**What changed:** two fixes, one in how the shell waits for a server that went away and one in its updates.
+
+- **#913 (#767): Retry now wakes every waiting loop, and the loop that finds the server wakes the others.** Three loops wait for a server that went away, each on its own backoff (1 s doubling to 60 s): the window's probe, presence and the fiscal bridge. Retry now set one flag, and whichever loop looked first took it while the other slept on. A loop that reached the server told no one, so the three came back up to a minute apart: presence was 25 to 55 s behind the bridge on the shop lanes. `wake.rs` gives them one generation that every waiter sees. Retry now rings it, and so do the window's probe when it answers, presence on `desktop:authenticated`, and the bridge when its assignment answers or a device registers. A ring from before a try began is ignored, since the try answered it, and a ring that came while a try was failing ends the next wait at once.
+- **#977 (#976): a deferred Install is a promise the shell keeps.** Install pressed on a busy till answered *deferred* and promised the update. With automatic updates off nothing ever tried again, so the press was lost. A deferral is now a promise kept in `update-request.json`, and every 15 s tick looks at it, whether automatic updates are on or off.
+  - It is tried as soon as the till is free. While the till stays in use it is tried every 10 min, and the 8th try forces it.
+  - It is never tried during a fiscal command, nor in the cooldown after the shell starts.
+  - It waits 15 min after a failure. It is withdrawn after a day, after three failures, or when automatic updates are switched off and the loop made it.
+  - At start, a promise whose version is installed is closed, and one handed over that did not take counts as a failure.
+  - `status.update` gains `request` and `withdrawn`. The change is additive, so `schemaVersion` stays 1. The Overview says which of the three it is: the install is waiting, why its last try failed, or why the shell gave up.
+  - The log names who asked: `update:` for the button, `auto-update:` for the loop. The lanes accept both (lgr-deploy#139).
+
+`packages/desktop` holds nothing else since 0.1.14: `wake.rs` is new, and `update.rs`, `status.rs`, `install.rs`, `main.rs`, `presence.rs`, `bridge.rs` and `web.rs` change (#931 only rewords four comments: a refused try is not audited). In `packages/desktop-ui` the Overview, `shell.ts` and the four locales carry #977's three states, `SettingsView.vue` clears the last type error (#958), and the router and `vite.config.ts` follow the moved packages (#421).
+
+**What it does not prove yet.** An update from N-1 to N runs N-1's deferral code, so the field proof of #977 is the first update from 0.1.15 to the release after it. The lanes below install 0.1.15 from its own installers and update nothing.
+
+**Lanes:** the FR-14 desk lanes and the FR-20 shop lanes (23 checks), on LGR's own Windows 11 golden. They ran against the signed draft's own bytes (draft 461182874, run 46086012682, from `555532b8`), staged on the build host and checked against GitHub's digests, beside the server 0.1.13 candidate (its rehearsal's bytes, run 46084000565 of `beb9862d`). Harness `feb4853` (lgr-deploy master). All eight lanes were green on their first run (the gate's desktop verdict 2026-11-28 02:56 UTC).
+- `shop-ubuntu` 23/23, `shop-win11` 23/23, `shop-ubuntu-nomcast` 22 PASS with its `rediscover` NA, `shop-win10` 23/23.
+- The desk lanes, cell for cell as on 0.1.14: code 12/0/7, key 11/0/8, msi/admin 13/0/6, ubuntu 3/0/16. `clock-skew` passed on the three Windows cells with the guest 180 min out.
+- **#913, from the four tills' own logs.** Presence and the bridge lost the server together 40 times while the shell ran on. In 38 of them the two were back within a second of each other, with a median gap of 0.1 s; on 0.1.14's shop lanes presence was 25 to 55 s behind the bridge. The other two came after a server restart on `shop-win11`, 3.5 s and 6.1 s apart.
+- When `rediscover` moved the master, presence followed it, and the bridge stayed on the old address until the shell started again. The shell says so (`fiscal bridge still bound to the old address: restart LGR Desktop to move it`), as it has since FR-20 P1-6d.
+- `clock-push` held its three-day skew to the end on all four shops.
+
+Published 2026-11-28 02:57 UTC from draft 461182874 (its `target_commitish` was `555532b8`, the tested commit).
+- Its tag's run built nothing (run 46100530633): `build` and `release` were skipped, because the release was already published.
+- All 14 asset digests were the draft's before and after publishing. They equal the files the lanes ran, hashed on the build host when staged, just before publishing and just after.
+- Desktop CI on the tag (run 46100530485) passed on its first attempt: the three builds, and the Windows smoke with 14 cases passed.
+- Offered to the fleet by lgr-deploy `656068b` (`DESKTOP_RELEASE_VERSION` 0.1.15). ArgoCD is Synced and Healthy, and both new pods read it.
+- Through `/api/desktop/download/0.1.15`, the page answers 200, and the MSI, the Windows installer and its `.sig` come back with the release's own sha256 digests.
