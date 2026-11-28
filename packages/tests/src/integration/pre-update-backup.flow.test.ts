@@ -8,7 +8,7 @@ import { config } from 'config'
 import { BackupRun } from 'db/models'
 import { forgetAllHomes, homeNewOrg } from 'db/home/home'
 import { runBackupForOrg } from 'services/biz/backup/backup-runner.service'
-import { backupBeforeUpdate } from 'services/biz/backup/pre-update-backup.service'
+import { backupBeforeUpdate, preUpdateStamp } from 'services/biz/backup/pre-update-backup.service'
 import type { Types } from 'mongoose'
 
 /**
@@ -103,6 +103,30 @@ describe('the backup before an update (FR-20.20)', () => {
     expect(a.ok && b.ok).toBe(true)
     expect(a.runs[0].filename).not.toBe(b.runs[0].filename)
     expect(await BackupRun.countDocuments({})).toBe(2)
+  })
+
+  it('two asked for at the same instant are two backups too, each with its own claim and file (#981)', async () => {
+    asMaster()
+    await seedOrg('same-second-co', true)
+    // A stamp to the second gave both one claim and one file, and the second backup wrote over the first one's.
+    const at = new Date('2026-10-25T20:00:00.000Z')
+    const [a, b] = await Promise.all([backupBeforeUpdate(at), backupBeforeUpdate(at)])
+    expect(a.ok && b.ok).toBe(true)
+    expect(a.runs[0].filename).not.toBe(b.runs[0].filename)
+    const rows: any[] = await BackupRun.find({}).lean().exec()
+    expect(rows.length).toBe(2)
+    expect(new Set(rows.map(r => String(r.claimKey))).size).toBe(2)
+    expect(rows.map(r => r.status)).toEqual(['completed', 'completed'])
+  })
+
+  it('stamps each call apart, and still in the order of their seconds (#981)', () => {
+    expect(preUpdateStamp(new Date('2026-11-28T04:11:24.482Z'), 'a1b2c3')).toBe('pre-update-20261128-041124-482-a1b2c3')
+    const one = preUpdateStamp(new Date('2026-11-28T04:11:24.482Z'))
+    const two = preUpdateStamp(new Date('2026-11-28T04:11:24.482Z'))
+    expect(one).not.toBe(two)
+    expect(one).toMatch(/^pre-update-20261128-041124-482-[0-9a-f]{6}$/)
+    expect(preUpdateStamp(new Date('2026-11-28T04:11:23.999Z')) < one).toBe(true)
+    expect(preUpdateStamp(new Date('2026-11-28T04:11:25.000Z')) > one).toBe(true)
   })
 
   it('with nothing homed here there is nothing to back up, and that is not a failure', async () => {
