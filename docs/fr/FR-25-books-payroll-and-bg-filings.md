@@ -1243,6 +1243,13 @@ Built: `services/biz/accounting-books/shadow-nightly.service.ts`, the scheduler 
   `seed-posting-rules.ts` adds it.
 - **By hand.** `--nightly` is the same night: its window and its bound. A dry run says whether the bound would hold it;
   with `--execute` a held night writes nothing and the script exits 3.
+- **Done on production: the first night, 2026-11-28.** Both stores were written at 02:01Z (04:01 in Sofia), each over
+  its whole shadow, from the month of its first posting to 11-27. One store got 2 entries and 2 rows of the shadow sales
+  register, the other 24 and 24, with no reversal in either. A dry run of the same night afterwards planned nothing in
+  either store (0 to post, repost or reverse, within the bound), and the settlement backlog was 0 in both. The audit
+  rows are the night's record, because its log lines went with the pods a later deploy replaced at 03:14Z. Each store's
+  test copy holds a copy of its row too: the test-org sync copies the audit trail but never the entries, so a test copy
+  shows a night that did not run there.
 
 ### R4, slice 1: the pairing count, as built
 
